@@ -1,0 +1,24 @@
+id: MNIST_train
+title: "MNIST training"
+description: "Training a simple CNN model on MNIST"
+
+# what experiment file to run
+file: experiment # will run experiment.py
+
+# Launcher configuration: what resources we need to run a Task
+launcher: "duration=1h & cuda(mem=4G)*1 & cpu(cores=4)"
+
+# Experimental parameters
+hidden_dim:        # number of hidden units in the model
+    - 32  
+n_layers:          # number of layers in the model
+    - 1
+    - 2
+kernel_size:       # kernel size of the convolutions
+    - 3
+
+# Training parameters
+epochs: 1       # number of epochs to train
+lr: 1e-3        # learning rate
+batch_size: 64  # batch size
+n_val: 100      # number of steps between validation and logging
