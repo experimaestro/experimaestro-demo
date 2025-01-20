@@ -1,4 +1,4 @@
-# GPU Deep Learning Tutorial
+# Experimaestro demo 
 This tutorial aims at showcasing how to launch and monitor Python experiments using [experimaestro](https://github.com/experimaestro/experimaestro-python). 
 
 We will use experimaestro in a basic setup performing hyperprameters search for a deep learning model (_here we will train CNN trained on the MNIST dataset_). 
