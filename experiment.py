@@ -44,18 +44,19 @@ def run( helper: ExperimentHelper, cfg: Configuration):
     for n_layer in cfg.n_layers:
         for hidden_dim in cfg.hidden_dim:
             for kernel_size in cfg.kernel_size:
-
+                # Create a task with the given parameters
                 task = TrainOnMNIST(
                         # Model params are 'tagged' for later monitoring
                         n_layers=tag(n_layer),    
                         hidden_dim=tag(hidden_dim),
                         kernel_size=tag(kernel_size),
-                        # Training
+                        # Training params are not tagged
                         epochs=cfg.epochs,
                         n_val=cfg.n_val,
                         lr=cfg.lr,
                         batch_size=cfg.batch_size,
                     )
+                # Submit the task to the launcher, and store the jobpath in our dict
                 tasks[tagspath(task)] = task.submit(launcher=gpulauncher).jobpath
 
     # Build a central "runs" directory to easily plot the metrics
