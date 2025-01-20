@@ -17,7 +17,8 @@ First clone this repository:
 ```bash
 git clone ...
 ```
- install the dependancies within your python environment..
+
+Install the dependancies within your python environment.. You may first install pytorch along with the specific version of CUDA from [here](https://pytorch.org/get-started/locally/).
 ```bash
 pip install -r requirements.txt
 ```
@@ -27,8 +28,8 @@ pip install -r requirements.txt
 
 We will now have a closer look at the key files of this demo repository. In short :
 - `Task.py` contains the core code for our Task: here it trains a CNN on MNIST with the specified parameters.
-- `debug.yaml`contains configuration parameters for our experiment
 - `experiment.py` orchestrates the experiment, it will launch the tasks given a configuration file.
+- `params.yaml`contains configuration parameters for our experiment
 
 We will also point out the most important objects that allow us to run the experiment.
 
@@ -176,6 +177,7 @@ RUNNING    task.trainonmnist/c9420a1de91830ff467397bd3e1aa592535eac931c9dff7efba
 ## TODOs
 Installation:
 - [ ] Setup the workspace directory, default install ?? 
+- [ ] Add details for results processing.
 - [ ] Detail how to install the launcher file as well.
 
 Don't know what is the best choice here
