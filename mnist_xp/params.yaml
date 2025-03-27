@@ -3,18 +3,20 @@ title: "MNIST training"
 description: "Training a simple CNN model on MNIST"
 
 # what experiment file to run
-file: experiment # will run experiment.py
+module: mnist_xp.experiment
+pythonpath: [..]
 
 # Launcher configuration: what resources we need to run a Task
 launcher: "duration=1h & cuda(mem=4G)*1 & cpu(cores=4)"
 
 # Experimental parameters
 hidden_dim:        # number of hidden units in the model
-    - 32  
+    - 2
+    - 32
 n_layers:          # number of layers in the model
     - 1
-    - 2
 kernel_size:       # kernel size of the convolutions
+    - 1
     - 3
 
 # Training parameters
