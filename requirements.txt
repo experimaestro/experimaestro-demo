@@ -6,4 +6,4 @@ tensorboard
 
 # experimaestro >= 1.7
 experimaestro  @ git+https://github.com/experimaestro/experimaestro-python@bfcf7f55f96
-datamaestro >= 1.3.2
+datamaestro >= 1.4.0
