@@ -15,14 +15,13 @@ By the end of this tutorial, you will understand the core structure of experimae
 ## Installation
 First clone this repository:
 ```bash
-git clone ...
+git clone https://github.com/experimaestro/experimaestro-demo.git
 ```
 
 Install the dependancies within your python environment.. You may first install pytorch along with the specific version of CUDA from [here](https://pytorch.org/get-started/locally/).
 ```bash
 pip install -r requirements.txt
 ```
-
 
 # The experiment structure
 
@@ -161,7 +160,7 @@ Now experimaestro will :
 		- here you can find the logs and the outputs of the running Task
 
 ## Monitoring your jobs
-Uoru jobs are now launched. You can display all launched jobs with the following command:
+Your jobs are now launched. You can display all launched jobs with the following command:
 ```bash
 experimaestro jobs list --tags
 ```
