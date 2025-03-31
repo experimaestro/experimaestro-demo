@@ -77,8 +77,12 @@ A configuration is characterized by:
 3. Use docstring to document the parameters – which can be used to generate a
    documentation when the number of experimental configuration becomes high (e.g. [the documentation of a cross-scorer in the IR library](https://experimaestro-ir.readthedocs.io/en/latest/neural.html#xpmir.neural.cross.CrossScorer))
 
+This configuration can latter be used as a dataclass when configuring the
+experiments, e.g. `CNN(n_layers=3)`.For each instance of a configuration, we can
+compute a **unique identifier** that changes only if **one or more experimental
+parameter changes**. For instance, `CNN()` and `CNN(n_layers=2)` have the same
+identifier, which is different from `CNN(n_layers=1)`.
 
-This configuration can latter be used as a dataclass when configuring the experiments, e.g. `CNN(n_layers=3)`.
 
 Another important type of object are `Task` objects. They correspond to the code that can be run, e.g. on a SLURM cluster or locally, to perform a part of the experiment, e.g. learning the CNN model from data. Let us take a closer look at some bits of the code:
 
