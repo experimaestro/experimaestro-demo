@@ -28,9 +28,14 @@ def count_parameters(model):
 class CNN(Config, nn.Module):
     """Defines a CNN model"""
 
-    n_layers: Param[int] = 2  # number of Hidden layers
-    hidden_dim: Param[int] = 64  # number of hidden units
-    kernel_size: Param[int] = 3  # kernel size of the CNN
+    n_layers: Param[int] = 2
+    """Number of Hidden layers"""
+
+    hidden_dim: Param[int] = 64
+    """Number of hidden units"""
+
+    kernel_size: Param[int] = 3
+    """Kernel size of the CNN"""
 
     def __post_init__(self):
         """Simple CNN module with n_layers hidden layers and hidden_dim hidden
@@ -130,7 +135,6 @@ class Evaluate(Task):
 # Note that we use docstrings to document the class and the parameters
 # This can be used to generate automatically a documentation
 class Learn(Task):
-
     """Learn to classify an image into a pre-defined set of classes"""
 
     runpath: Meta[Path] = field(default_factory=PathGenerator("runs"))
