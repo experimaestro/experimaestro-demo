@@ -33,9 +33,7 @@ git clone https://github.com/experimaestro/experimaestro-demo.git
 pip install -r requirements.txt
 ```
 
-# Tutorial
-
-## File organization
+# The experiment structure
 
 We will now have a closer look at the key files of this demo repository. In short, in the `mnist_xp` folder we have
 
@@ -311,7 +309,7 @@ Now experimaestro will:
 		- here you can find the logs and the outputs of the running Task
 
 ## Monitoring your jobs
-Uoru jobs are now launched. You can display all launched jobs with the following command:
+Your jobs are now launched. You can display all launched jobs with the following command:
 ```bash
 experimaestro jobs list --tags
 ```
