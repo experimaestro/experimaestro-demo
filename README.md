@@ -27,8 +27,13 @@ git clone https://github.com/experimaestro/experimaestro-demo.git
 ```
 
 ### Install the dependancies within your python environment
+If using uv, you can automatically create a venv with the requirements:
+```bash
+uv sync
+source .venv/bin/activate
+```
 
- You may first install pytorch along with the specific version of CUDA from [here](https://pytorch.org/get-started/locally/).
+You may first install pytorch along with the specific version of CUDA from [here](https://pytorch.org/get-started/locally/).
 ```bash
 pip install -r requirements.txt
 ```
@@ -300,7 +305,7 @@ We will launch one job for each possible combination of `hidden_dim`,`n_layers` 
 # Running the Experiment
 Now that everything is set up, we can run our experiment
 ```bash
-experimaestro run-experiment debug.yaml
+experimaestro run-experiment mnist_xp/params.yaml
 ```
 
 Now experimaestro will:
