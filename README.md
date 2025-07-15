@@ -18,27 +18,60 @@ various hyper-parameters. This can rapidly become a pain to:
 By the end of this tutorial, you will understand the core structure of
 experimaestro. And you will be able to launch and monitor your own experiments.
 
-## Installation
+# Installation
 
-### First clone this repository
+- Clone this repository.
 
 ```bash
-git clone https://github.com/experimaestro/experimaestro-demo.git
+git clone https://github.com/experimaestro/experimaestro-demo.git && cd experimaestro-demo
 ```
 
-### Install the dependancies within your python environment
+## Installing dependancies
+
+### Using [`uv`](https://docs.astral.sh/uv/)
 If using uv, you can automatically create a venv with the requirements:
 ```bash
 uv sync
 source .venv/bin/activate
 ```
 
+### Using requirements
+
 You may first install pytorch along with the specific version of CUDA from [here](https://pytorch.org/get-started/locally/).
+
 ```bash
 pip install -r requirements.txt
 ```
 
-# The experiment structure
+## Setting up Workspaces
+
+Experimaestro automatically creates folders for all the run tasks. We still have to specify _where_ those folders will be created ! 
+
+There are two solutions :
+
+### Define a Default Workspace
+Workspace settings are stored in `$HOME/.config/experimaestro/settings.yaml` (see documentation at https://experimaestro-python.readthedocs.io/en/latest/settings/ ) 
+
+This repository contains a [default `settings.yaml`](xpm_settings.yaml) for quick testing.
+
+- **💡Tip:** This command will write the default config above in your `settings.yaml` if it doesn't already exist.
+
+```bash
+FILE="$HOME/.config/experimaestro/settings.yaml"; if [ ! -f $FILE ] ; then cat ./xpm_settings.yaml > $FILE ; else echo "$FILE already exists !"; fi
+``` 
+
+### Or Specify workspace inline
+
+If there are no `settings.yaml` provided, you can still specify where you want your experiments to run with the following.
+
+```bash
+mkdir $HOME/experiments
+experimaestro run-experiment --workdir $HOME/experiments ...
+```
+
+# Walktrough
+
+## The experiment structure
 
 We will now have a closer look at the key files of this demo repository. In short, in the `mnist_xp` folder we have
 
@@ -49,7 +82,7 @@ We will now have a closer look at the key files of this demo repository. In shor
 
 We will also point out the most important objects that allow us to run the experiment.
 
-## `learn.py`
+### `learn.py`
 
 This file contains the code that defines a CNN model, and specifies how to learn
 and evaluate an image classification model.
@@ -122,7 +155,7 @@ Please have a look at the `Task`
 for more details.
 
 
-## Dataset handling: `data.py`
+### Dataset handling: `data.py`
 
 The first code in this file defines a labelled image dataset, which is a light
 abstraction of the basic datasets we manipulate in our experiment. We use the
@@ -220,11 +253,11 @@ def mnist(train_images, train_labels, test_images, test_labels) -> ImageClassifi
 </details>
 
 
-## `experiment.py`
+### `experiment.py`
 This file describe the experiment, an experiment may load and launch several Tasks ..
 There are two key elements in `experiment.py`:
 
-### Configuration
+#### Configuration
 The most important concept in Experimaestro is that of a configuration.
 In Experimaestro, a configuration object is a fundamental concept used to specify parameters and settings for tasks and experiments.
 It acts as a structured way to input the necessary details to execute a task or a series of tasks.
@@ -249,7 +282,7 @@ class Configuration(ConfigurationBase):
 This class describes the configuration needed to run our experiment, The values for this configuration
 Please have a look at the `Config` [documentation](https://experimaestro-python.readthedocs.io/en/latest/experiments/config/) for more details.
 
-### Launchers
+#### Launchers
 When operating with clusters using workload managers like [`Slurm`](https://slurm.schedmd.com/quickstart.html), experimaestro can manage the sumbission of your Tasks. This can be done easily with a [configuration file](https://experimaestro-python.readthedocs.io/en/latest/launchers/) (that specificies how to launch a task given some specifications), and the `find_launcher` function:
 
 Here, we specified in the configuration above what hardware contraints we need for our Task: training a CNN on MNIST. We can then find a launcher with:
@@ -272,7 +305,7 @@ we use the
 				...task.submit(launcher=gpulauncher)... # Submit the Task to Slurm
 ```
 
-## `params.yaml`
+### `params.yaml`
 This file contains the values of the parameters that will be used to run our experiment.
 
 ```yaml
@@ -302,7 +335,7 @@ n_val: 100      # number of steps between validation and logging
 ```
 We will launch one job for each possible combination of `hidden_dim`,`n_layers` and `kernel_size`.
 
-# Running the Experiment
+## Running the Experiment
 Now that everything is set up, we can run our experiment
 ```bash
 experimaestro run-experiment mnist_xp/params.yaml
@@ -317,7 +350,7 @@ Now experimaestro will:
 	- A folder is created in the `workspace/jobs/task-id` , it will be the working directory for the Task
 		- here you can find the logs and the outputs of the running Task
 
-## Monitoring your jobs
+### Monitoring your jobs
 Your jobs are now launched. You can display all launched jobs with the following command:
 ```bash
 experimaestro jobs list --tags
@@ -332,9 +365,8 @@ RUNNING    task.trainonmnist/c9420a1de91830ff467397bd3e1aa592535eac931c9dff7efba
 > For better readability, we used `tags` when creating our Tasks, and used the `--tag` flag in the command above. This is why the parameters are diplayed above. See the [docs](https://experimaestro-python.readthedocs.io/en/latest/experiments/plan/#tags) for more details.
 
 ## TODOs
+
 Installation:
-- [ ] Setup the workspace directory, default install ??
 - [ ] Add details for results processing.
 - [ ] Detail how to install the launcher file as well.
 
-Don't know what is the best choice here
