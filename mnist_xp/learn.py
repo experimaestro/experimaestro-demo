@@ -169,7 +169,7 @@ class Learn(Task):
     previous runs)"""
 
     def task_outputs(self, dep):
-        return dep(ParameterLoader(model=self.model, path=self.parameters_path))
+        return dep(ParameterLoader.C(model=self.model, path=self.parameters_path))
 
     def execute(self):
         # Tensorboard writer

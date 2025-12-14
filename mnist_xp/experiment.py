@@ -62,14 +62,14 @@ def run(helper: ExperimentHelper, cfg: Configuration):
         for hidden_dim in cfg.hidden_dim:
             for kernel_size in cfg.kernel_size:
                 # Create a task with the given parameters
-                model = CNN(
+                model = CNN.C(
                     # Model params are 'tagged' for later monitoring
                     hidden_dim=tag(hidden_dim),
                     kernel_size=tag(kernel_size),
                     n_layers=tag(n_layer),
                 )
 
-                task = Learn(
+                task = Learn.C(
                     # Defines the data and model used for training
                     data=ds_mnist.train,
                     model=model,
@@ -87,7 +87,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 (runpath / tagspath(task)).symlink_to(task.runpath)
 
                 # Evaluate the model on the test set
-                evaluate = Evaluate(model=model, data=ds_mnist.test)
+                evaluate = Evaluate.C(model=model, data=ds_mnist.test)
                 evaluate.submit(init_tasks=[loader])
                 evaluations.append(evaluate)
 

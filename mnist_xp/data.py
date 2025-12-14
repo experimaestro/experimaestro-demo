@@ -32,7 +32,7 @@ def download_mnist(context: Context, root: Path, force=False):
 @dataset(id="com.lecun.mnist")
 def mnist(root: Path) -> Supervised[LabelledImages, None, LabelledImages]:
     """This corresponds to a dataset with an ID `com.lecun.mnist`"""
-    return Supervised(
-        train=MNISTLabelledImages(root=root, train=True),
-        test=MNISTLabelledImages(root=root, train=False),
+    return Supervised.C(
+        train=MNISTLabelledImages.C(root=root, train=True),
+        test=MNISTLabelledImages.C(root=root, train=False),
     )

@@ -16,7 +16,7 @@ various hyper-parameters. This can rapidly become a pain to:
 ### Luckily, `experimaestro` can do all of that for you !
 
 By the end of this tutorial, you will understand the core structure of
-experimaestro. And you will be able to launch and monitor your own experiments.
+experimaestro. And you will be able to launch and monitor your own experiments. In this tutorial, we rely on `git` and `uv`; both needs to be installed.
 
 # Installation
 
@@ -24,23 +24,6 @@ experimaestro. And you will be able to launch and monitor your own experiments.
 
 ```bash
 git clone https://github.com/experimaestro/experimaestro-demo.git && cd experimaestro-demo
-```
-
-## Installing dependancies
-
-### Using [`uv`](https://docs.astral.sh/uv/)
-If using uv, you can automatically create a venv with the requirements:
-```bash
-uv sync
-source .venv/bin/activate
-```
-
-### Using requirements
-
-You may first install pytorch along with the specific version of CUDA from [here](https://pytorch.org/get-started/locally/).
-
-```bash
-pip install -r requirements.txt
 ```
 
 ## Setting up Workspaces
@@ -66,7 +49,7 @@ If there are no `settings.yaml` provided, you can still specify where you want y
 
 ```bash
 mkdir $HOME/experiments
-experimaestro run-experiment --workdir $HOME/experiments ...
+uv run experimaestro run-experiment --workdir $HOME/experiments ...
 ```
 
 # Walktrough
@@ -116,10 +99,10 @@ A configuration is characterized by:
    documentation when the number of experimental configuration becomes high (e.g. [the documentation of a cross-scorer in the IR library](https://experimaestro-ir.readthedocs.io/en/latest/neural.html#xpmir.neural.cross.CrossScorer))
 
 This configuration can latter be used as a dataclass when configuring the
-experiments, e.g. `CNN(n_layers=3)`.For each instance of a configuration, we can
+experiments, e.g. `CNN.C(n_layers=3)`.For each instance of a configuration, we can
 compute a **unique identifier** that changes only if **one or more experimental
-parameter changes**. For instance, `CNN()` and `CNN(n_layers=2)` have the same
-identifier, which is different from `CNN(n_layers=1)`.
+parameter changes**. For instance, `CNN.C()` and `CNN.C(n_layers=2)` have the same
+identifier, which is different from `CNN.C(n_layers=1)`.
 
 
 Another important type of object are `Task` objects. They correspond to the code that can be run, e.g. on a SLURM cluster or locally, to perform a part of the experiment, e.g. learning the CNN model from data. Let us take a closer look at some bits of the code:
@@ -174,7 +157,7 @@ derive from.
 
 Leveraging [torchvision](https://pytorch.org/vision/stable/index.html), We then define the MNIST data with the following code:
 
-```py
+```python
 class MNISTLabelledImages(LabelledImages):
     root: Meta[Path]
     train: Param[bool]
@@ -194,8 +177,8 @@ def download_mnist(context: Context, root: Path, force=False):
 def mnist(root: Path) -> Supervised[LabelledImages, None, LabelledImages]:
     """This corresponds to a dataset with an ID `com.lecun.mnist`"""
     return Supervised(
-        train=MNISTLabelledImages(root=root, train=True),
-        test=MNISTLabelledImages(root=root, train=False),
+        train=MNISTLabelledImages.C(root=root, train=True),
+        test=MNISTLabelledImages.C(root=root, train=False),
     )
 ```
 
@@ -338,7 +321,7 @@ We will launch one job for each possible combination of `hidden_dim`,`n_layers` 
 ## Running the Experiment
 Now that everything is set up, we can run our experiment
 ```bash
-experimaestro run-experiment mnist_xp/params.yaml
+uv run experimaestro run-experiment mnist_xp/params.yaml
 ```
 
 Now experimaestro will:
@@ -351,9 +334,10 @@ Now experimaestro will:
 		- here you can find the logs and the outputs of the running Task
 
 ### Monitoring your jobs
+
 Your jobs are now launched. You can display all launched jobs with the following command:
 ```bash
-experimaestro jobs list --tags
+uv run experimaestro jobs list --tags
 ```
 it yields:
 ```bash
