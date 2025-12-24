@@ -37,7 +37,7 @@ class Configuration(ConfigurationBase):
 def run(helper: ExperimentHelper, cfg: Configuration):
     logging.debug(cfg)
     # Find a launcher to run our tasks given the given cfg.launcher
-    gpulauncher = find_launcher(cfg.launcher, tags=["slurm"])
+    gpulauncher = find_launcher(cfg.launcher, tags={"slurm"})
 
     logging.info(f"Will Launch Tasks using launcher: {gpulauncher}")
 

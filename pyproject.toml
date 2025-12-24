@@ -5,13 +5,19 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "datamaestro>=1.4.1",
-    "experimaestro>=1.6.2",
+    "datamaestro>=1.6.1",
+    "experimaestro>=2.0.0b1",
     "pandas>=2.2.3",
     "tensorboard>=2.19.0",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
 ]
 
-[tool.uv.sources]
-experimaestro = { git = "https://github.com/experimaestro/experimaestro-python", rev = "dd4690d" }
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+]
+
+[tool.mypy]
+plugins = ["experimaestro.mypy"]
+
