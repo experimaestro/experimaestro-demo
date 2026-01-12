@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "datamaestro>=1.6.1",
-    "experimaestro>=2.0.0b1",
+    "experimaestro>=2.0.0b17",
     "pandas>=2.2.3",
     "tensorboard>=2.19.0",
     "torch>=2.6.0",
@@ -16,8 +16,27 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
+    "ruff>=0.14.11",
 ]
 
 [tool.mypy]
 plugins = ["experimaestro.mypy"]
 
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "C90",    # mccabe complexity
+    "T20",    # flake8-print
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25

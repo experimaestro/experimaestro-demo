@@ -10,8 +10,7 @@ from datamaestro.download.custom import custom_download
 
 class LabelledImages(Base, ABC):
     @abstractmethod
-    def torchvision_dataset(self, **kwargs) -> VisionDataset:
-        ...
+    def torchvision_dataset(self, **kwargs) -> VisionDataset: ...
 
 
 class MNISTLabelledImages(LabelledImages):

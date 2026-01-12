@@ -139,7 +139,7 @@ class Evaluate(Task):
 class Learn(Task):
     """Learn to classify an image into a pre-defined set of classes"""
 
-    runpath: Meta[Path] = field(default_factory=PathGenerator("runs"))
+    run_path: Meta[Path] = field(default_factory=PathGenerator("runs"))
     """Path to store tensorboard logs"""
 
     parameters_path: Meta[Path] = field(default_factory=PathGenerator("parameters.pth"))
@@ -173,7 +173,7 @@ class Learn(Task):
 
     def execute(self):
         # Tensorboard writer
-        writer = SummaryWriter(self.runpath)
+        writer = SummaryWriter(self.run_path)
 
         # Load and preprocess the MNIST dataset
         transform = transforms.Compose(
@@ -203,7 +203,7 @@ class Learn(Task):
 
         for epoch in tqdm(range(self.epochs)):
             running_loss = 0
-            for images, labels in tqdm(trainloader, desc=f"Epoch {epoch+1}"):
+            for images, labels in tqdm(trainloader, desc=f"Epoch {epoch + 1}"):
                 it += 1
                 output = model(images)
 

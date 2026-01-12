@@ -8,6 +8,8 @@ from experimaestro.experiments import ExperimentHelper, configuration
 from experimaestro import tag, tagspath, tags
 from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
+
+from mnist_xp.tensorboard_service import TensorboardService
 from .learn import CNN, Learn, Evaluate
 from .data import mnist
 
@@ -42,20 +44,22 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     logging.info(f"Will Launch Tasks using launcher: {gpulauncher}")
 
     evaluations = []
-    logging.info(
-        "Experimaestro will launch tasks for " "each combination of parameters"
-    )
+    logging.info("Experimaestro will launch tasks for each combination of parameters")
+
+    # Add tensorboard service
+    tb = TensorboardService(helper.xp.resultspath / "runs")
+    helper.xp.add_service(tb)
 
     # This downloads the dataset if needed
     ds_mnist = prepare_dataset(mnist)
 
     # This path will contain all the tensorboard data
-    runpath = (
+    run_path = (
         helper.xp.resultspath / "runs"
     )  # using pathlib.Path for cross-platform compatibility
-    if runpath.is_dir():
-        rmtree(runpath)
-    runpath.mkdir(exist_ok=True, parents=True)
+    if run_path.is_dir():
+        rmtree(run_path)
+    run_path.mkdir(exist_ok=True, parents=True)
 
     # GridSearch: Launch a task for each combination of parameters
     for n_layer in cfg.n_layers:
@@ -82,9 +86,10 @@ def run(helper: ExperimentHelper, cfg: Configuration):
 
                 # Submit the task
                 loader = task.submit(launcher=gpulauncher)
+                tb.add(task, task.run_path)
 
                 # Symlink so we can watch all this on tensorboard
-                (runpath / tagspath(task)).symlink_to(task.runpath)
+                (run_path / tagspath(task)).symlink_to(task.run_path)
 
                 # Evaluate the model on the test set
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)

@@ -5,6 +5,7 @@ description: "Training a simple CNN model on MNIST"
 # what experiment file to run
 module: mnist_xp.experiment
 pythonpath: [..]
+dirty_git: WARN
 
 # Launcher configuration: what resources we need to run a Task
 launcher: "duration=1h & cuda(mem=4G)*1 & cpu(cores=4)"
