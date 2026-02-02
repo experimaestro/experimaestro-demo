@@ -41,6 +41,3 @@ ignore = [
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
-
-[tool.uv.sources]
-experimaestro = { path = "../../maestros/experimaestro-v2", editable = true }
