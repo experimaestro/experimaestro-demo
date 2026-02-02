@@ -3,7 +3,8 @@ from pathlib import Path
 import logging
 from torchvision.datasets import VisionDataset, MNIST
 from experimaestro import Meta, Param
-from datamaestro import dataset, Base, Context
+from datamaestro import Base, Context
+from datamaestro.definitions import AbstractDataset, dataset
 from datamaestro.data.ml import Supervised
 from datamaestro.download.custom import custom_download
 
@@ -27,11 +28,15 @@ def download_mnist(context: Context, root: Path, force=False):
         MNIST(root, train=train, download=True)
 
 
-@custom_download("root", download_mnist)
-@dataset(id="com.lecun.mnist")
-def mnist(root: Path) -> Supervised[LabelledImages, None, LabelledImages]:
-    """This corresponds to a dataset with an ID `com.lecun.mnist`"""
-    return Supervised.C(
-        train=MNISTLabelledImages.C(root=root, train=True),
-        test=MNISTLabelledImages.C(root=root, train=False),
-    )
+@dataset(id="com.lecun.mnist", url="http://yann.lecun.com/exdb/mnist/")
+class MNISTDataset(Supervised[LabelledImages, None, LabelledImages]):
+    """The MNIST database of handwritten digits."""
+
+    ROOT = custom_download("root", download_mnist)
+
+    @classmethod
+    def __create_dataset__(cls, dataset: AbstractDataset):
+        return cls.C(
+            train=MNISTLabelledImages.C(root=cls.ROOT.prepare(), train=True),
+            test=MNISTLabelledImages.C(root=cls.ROOT.prepare(), train=False),
+        )

@@ -11,7 +11,7 @@ from experimaestro.launcherfinder import find_launcher
 
 from mnist_xp.tensorboard_service import TensorboardService
 from .learn import CNN, Learn, Evaluate
-from .data import mnist
+from .data import MNISTDataset
 
 logging.basicConfig(level=logging.INFO)
 
@@ -51,7 +51,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     helper.xp.add_service(tb)
 
     # This downloads the dataset if needed
-    ds_mnist = prepare_dataset(mnist)
+    ds_mnist = prepare_dataset(MNISTDataset)
 
     # This path will contain all the tensorboard data
     run_path = (
@@ -73,15 +73,17 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                     n_layers=tag(n_layer),
                 )
 
-                task = Learn.C(
-                    # Defines the data and model used for training
-                    data=ds_mnist.train,
-                    model=model,
-                    # Training params are not tagged
-                    epochs=cfg.epochs,
-                    n_val=cfg.n_val,
-                    lr=cfg.lr,
-                    batch_size=cfg.batch_size,
+                task = (
+                    Learn.C(
+                        # Defines the data and model used for training
+                        data=ds_mnist.train,
+                        # Training params are not tagged
+                        epochs=cfg.epochs,
+                        n_val=cfg.n_val,
+                        lr=cfg.lr,
+                        batch_size=cfg.batch_size,
+                    )
+                    @ model
                 )
 
                 # Submit the task
@@ -102,10 +104,14 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     # OK, now we can look at the results
     dfs = []
     for evaluation in evaluations:
-        df = pd.read_csv(evaluation.results_path)
-        for key, value in tags(evaluation).items():
-            df[key] = value
-        dfs.append(df)
+        if evaluation.results_path.exists():
+            df = pd.read_csv(evaluation.results_path)
+            for key, value in tags(evaluation).items():
+                df[key] = value
+            dfs.append(df)
+        else:
+            logging.error("No results found in %s", evaluation.results_path)
 
-    df = pd.concat(dfs)
-    print(df)  # noqa: T201
+    if dfs:
+        df = pd.concat(dfs)
+        print(df)  # noqa: T201

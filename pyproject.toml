@@ -5,8 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "datamaestro>=1.6.1",
-    "experimaestro>=2.0.0b17",
+    "datamaestro>=1.7.4",
+    "experimaestro[carbon]>=2.0.0b17",
+    "nvidia-ml-py>=13.590.44",
     "pandas>=2.2.3",
     "tensorboard>=2.19.0",
     "torch>=2.6.0",
@@ -40,3 +41,6 @@ ignore = [
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
+
+[tool.uv.sources]
+experimaestro = { path = "../../maestros/experimaestro-v2", editable = true }
