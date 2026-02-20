@@ -90,9 +90,6 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 loader = task.submit(launcher=gpulauncher)
                 tb.add(task, task.run_path)
 
-                # Symlink so we can watch all this on tensorboard
-                (run_path / tagspath(task)).symlink_to(task.run_path)
-
                 # Evaluate the model on the test set
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
                 evaluate.submit(init_tasks=[loader])
