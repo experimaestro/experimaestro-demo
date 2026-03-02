@@ -8,7 +8,7 @@ pythonpath: [..]
 dirty_git: WARN
 
 # Launcher configuration: what resources we need to run a Task
-launcher: "duration=1h & cuda(mem=4G)*1 & cpu(cores=4)"
+launcher: "duration=1h & gpu(mem=4G)*1 & cpu(cores=4)"
 
 # Experimental parameters
 hidden_dim:        # number of hidden units in the model

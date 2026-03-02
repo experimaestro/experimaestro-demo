@@ -9,7 +9,8 @@ dependencies = [
     "experimaestro[carbon]>=2.0.0b17",
     "nvidia-ml-py>=13.590.44",
     "pandas>=2.2.3",
-    "tensorboard>=2.19.0",
+    "setuptools>=70,<81",
+    "tensorboard>=2.20",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
 ]
