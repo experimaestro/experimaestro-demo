@@ -504,7 +504,7 @@ wheels = [
 
 [[package]]
 name = "experimaestro"
-version = "2.0.4"
+version = "2.0.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "arpeggio" },
@@ -536,9 +536,9 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/59/c7/f7c992ed7e57e99a537759c8d7af6d62cda0af0bf9809152225873acabfc/experimaestro-2.0.4.tar.gz", hash = "sha256:8b1103432cc211689909fbce9f6ad178f2e3df92989549faf7227e2355579454", size = 27738424, upload-time = "2026-02-28T12:48:57.105Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/17/84ad6f78b9a0580565f0d0bcd4ab0d8b1a72ad24c7ea2cbc5508d6289a62/experimaestro-2.0.7.tar.gz", hash = "sha256:85a1bb8b5917846e8650e8e7fe01305a70d691a42c3b5cdaaab0b008041a7899", size = 28509780, upload-time = "2026-03-02T08:42:45.34Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/81/eee14d2007f2a90a7603227a7248395050d3325212e8ed321de3dbb4550b/experimaestro-2.0.4-py3-none-any.whl", hash = "sha256:d9b755d25c88632cd19975c96d0bebb59efaea8fab0699fdad3cfa44c48881dd", size = 2901697, upload-time = "2026-02-28T12:48:54.056Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/ab/c8f5ac1130bbf08303317609d5fcb8be646f67cf4523f53f89a1313e396e/experimaestro-2.0.7-py3-none-any.whl", hash = "sha256:8e5b46dde7015286dd308d5fae6c6c834142e4100c08d38b9cee13de7f15db74", size = 2963143, upload-time = "2026-03-02T08:42:43.085Z" },
 ]
 
 [package.optional-dependencies]
@@ -572,7 +572,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "datamaestro", specifier = ">=1.7.4" },
-    { name = "experimaestro", extras = ["carbon"], specifier = ">=2.0.0b17" },
+    { name = "experimaestro", extras = ["carbon"], specifier = ">=2.0.7" },
     { name = "nvidia-ml-py", specifier = ">=13.590.44" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "setuptools", specifier = ">=70,<81" },
