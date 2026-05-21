@@ -5,13 +5,14 @@ import pandas as pd
 from shutil import rmtree
 from datamaestro import prepare_dataset
 from experimaestro.experiments import ExperimentHelper, configuration
-from experimaestro import tag, tagspath, tags
+from experimaestro import tag, tags
 from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
 
 from mnist_xp.tensorboard_service import TensorboardService
 from .learn import CNN, Learn, Evaluate
 from .data import MNISTDataset
+from .actions import EvaluatedModel, ExportBestModel
 
 logging.basicConfig(level=logging.INFO)
 
@@ -44,6 +45,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     logging.info(f"Will Launch Tasks using launcher: {gpulauncher}")
 
     evaluations = []
+    candidates: list[EvaluatedModel] = []
     logging.info("Experimaestro will launch tasks for each combination of parameters")
 
     # Add tensorboard service
@@ -91,9 +93,24 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 tb.add(task, task.run_path)
 
                 # Evaluate the model on the test set
+                learn_task = task  # keep a reference to read parameters_path
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
                 evaluate.submit(init_tasks=[loader])
                 evaluations.append(evaluate)
+
+                # Collect candidate for the post-experiment "export best" action
+                candidates.append(
+                    EvaluatedModel.C(
+                        cnn=model,
+                        parameters_path=learn_task.parameters_path,
+                        results_path=evaluate.results_path,
+                    )
+                )
+
+    # Register a post-experiment action: pick the best model and export it.
+    # Run later with:
+    #   uv run experimaestro experiments actions run <experiment-id>
+    helper.xp.add_action(ExportBestModel.C(candidates=candidates))
 
     # Wait that everything finishes
     helper.xp.wait()

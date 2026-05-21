@@ -28,12 +28,12 @@ git clone https://github.com/experimaestro/experimaestro-demo.git && cd experima
 
 ## Setting up Workspaces
 
-Experimaestro automatically creates folders for all the run tasks. We still have to specify _where_ those folders will be created ! 
+Experimaestro automatically creates folders for all the run tasks. We still have to specify _where_ those folders will be created !
 
 There are two solutions :
 
 ### Define a Default Workspace
-Workspace settings are stored in `$HOME/.config/experimaestro/settings.yaml` (see documentation at https://experimaestro-python.readthedocs.io/en/latest/settings/ ) 
+Workspace settings are stored in `$HOME/.config/experimaestro/settings.yaml` (see documentation at https://experimaestro-python.readthedocs.io/en/latest/settings/ )
 
 This repository contains a [default `settings.yaml`](xpm_settings.yaml) for quick testing.
 
@@ -41,7 +41,7 @@ This repository contains a [default `settings.yaml`](xpm_settings.yaml) for quic
 
 ```bash
 FILE="$HOME/.config/experimaestro/settings.yaml"; if [ ! -f $FILE ] ; then cat ./xpm_settings.yaml > $FILE ; else echo "$FILE already exists !"; fi
-``` 
+```
 
 ### Or Specify workspace inline
 
@@ -333,6 +333,35 @@ Now experimaestro will:
 	- A folder is created in the `workspace/jobs/task-id` , it will be the working directory for the Task
 		- here you can find the logs and the outputs of the running Task
 
+### Pre-downloading the dataset (offline / SLURM)
+
+The script calls `prepare_dataset(MNISTDataset)`. Inside an experiment, this
+returns a [`Prepare`](https://experimaestro-python.readthedocs.io/en/latest/experiments/config/#prepare-configurations-data-preparation)
+config: experimaestro will call its `prepare()` (the MNIST download) **once,
+before any Learn task runs**, in the driver process. Idempotent: a warm cache
+makes it a no-op on subsequent runs.
+
+If you're about to submit jobs to an offline cluster (compute nodes without
+internet), pre-warm the cache from your driver / login node with:
+
+```bash
+uv run experimaestro run-experiment --run-mode prepare mnist_xp/params.yaml
+```
+
+This walks every `Prepare` referenced by submitted tasks (here: MNIST) and
+runs only their `prepare()` methods — **no Learn or Evaluate jobs are
+launched**. After this, you can run the normal command (no internet needed):
+
+```bash
+uv run experimaestro run-experiment mnist_xp/params.yaml
+```
+
+**Where the data ends up.** In PREPARE mode, no `workspace/jobs/...` folders
+are created — the only on-disk effect is what `prepare()` itself writes. For
+this demo that means the torchvision `MNIST` files under `~/.cache/datamaestro/`
+(datamaestro's resource store). Compare with NORMAL mode where each Task also
+gets a `workspace/jobs/<task-id>/<hash>/` folder for its outputs and logs.
+
 ### Monitoring your jobs
 
 Your jobs are now launched. You can display all launched jobs with the following command:
@@ -348,9 +377,45 @@ RUNNING    task.trainonmnist/c9420a1de91830ff467397bd3e1aa592535eac931c9dff7efba
 > 💡 **Bonus**:
 > For better readability, we used `tags` when creating our Tasks, and used the `--tag` flag in the command above. This is why the parameters are diplayed above. See the [docs](https://experimaestro-python.readthedocs.io/en/latest/experiments/plan/#tags) for more details.
 
+## Post-experiment: Exporting the best model
+
+Once every Learn / Evaluate finishes, you usually want to *do* something with
+the results — pick the best model, push it to HuggingFace Hub, copy artefacts
+into a results folder, etc. Experimaestro provides
+[Actions](https://experimaestro-python.readthedocs.io/en/latest/experiments/actions/)
+(alpha): `Config` subclasses that are registered during the experiment and
+executed afterwards via the CLI / TUI.
+
+The demo defines [`ExportBestModel`](mnist_xp/actions.py) which compares every
+evaluation's accuracy and copies the winning model's `parameters.pth` to a
+location of your choice. It is registered at the end of `experiment.py`:
+
+```python
+from .actions import EvaluatedModel, ExportBestModel
+
+# (in the loop, after each Learn/Evaluate submit)
+candidates.append(EvaluatedModel.C(
+    cnn=model,
+    parameters_path=learn_task.parameters_path,
+    results_path=evaluate.results_path,
+))
+
+# (after the loop, before helper.xp.wait())
+helper.xp.add_action(ExportBestModel.C(candidates=candidates))
+```
+
+After the experiment finishes, list and run the action:
+
+```bash
+uv run experimaestro experiments actions list MNIST_train
+uv run experimaestro experiments actions run MNIST_train <action-id>
+```
+
+The CLI asks where to copy the best model's parameters (default:
+`./mnist-best.pth`) and reports its accuracy. Re-running the action is safe
+and idempotent — it just re-reads the results CSVs and copies the file again.
+
 ## TODOs
 
 Installation:
-- [ ] Add details for results processing.
 - [ ] Detail how to install the launcher file as well.
-
