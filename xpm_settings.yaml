@@ -2,6 +2,10 @@
 # see https://experimaestro-python.readthedocs.io/en/latest/settings/ for more options
 
 workspaces:
-  # First workspace will be used as default if not specified in `experimaestro run-experiment ..`
-  - id: MNIST_train
+  # The `triggers:` field auto-selects this workspace when the experiment id
+  # matches a glob — no `--workspace` / `--workdir` flag needed.
+  # The first workspace is also used as the default fallback.
+  - id: mnist
     path: ~/experiments/mnist_xp
+    triggers:
+      - "MNIST_*"

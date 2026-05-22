@@ -13,12 +13,14 @@ various hyper-parameters. This can rapidly become a pain to:
 - Track the hyper-parameters already tested. And avoid launching a job with same parameters twice.
 - Save results in proper _unique and not conflicting directories_ for further loading and analysis.
 
-### Luckily, `experimaestro` can do all of that for you !
+**Luckily, `experimaestro` can do all of that for you!**
 
 By the end of this tutorial, you will understand the core structure of
 experimaestro. And you will be able to launch and monitor your own experiments. In this tutorial, we rely on `git` and `uv`; both needs to be installed.
 
-# Installation
+<!-- doc:start -->
+
+## Installation
 
 - Clone this repository.
 
@@ -26,33 +28,52 @@ experimaestro. And you will be able to launch and monitor your own experiments. 
 git clone https://github.com/experimaestro/experimaestro-demo.git && cd experimaestro-demo
 ```
 
-## Setting up Workspaces
+### Setting up workspaces
 
 Experimaestro automatically creates folders for all the run tasks. We still have to specify _where_ those folders will be created !
 
-There are two solutions :
+There are two solutions:
 
-### Define a Default Workspace
-Workspace settings are stored in `$HOME/.config/experimaestro/settings.yaml` (see documentation at https://experimaestro-python.readthedocs.io/en/latest/settings/ )
+#### Define a default workspace
 
-This repository contains a [default `settings.yaml`](xpm_settings.yaml) for quick testing.
+Workspace settings are stored in `$HOME/.config/experimaestro/settings.yaml` (see documentation at https://experimaestro-python.readthedocs.io/en/latest/settings/ ).
 
-- **💡Tip:** This command will write the default config above in your `settings.yaml` if it doesn't already exist.
+This repository contains a [default `settings.yaml`](https://github.com/experimaestro/experimaestro-demo/blob/main/xpm_settings.yaml) for quick testing. It uses **`triggers:`** so that running the `MNIST_train` experiment automatically picks the right workspace — no `--workspace` / `--workdir` flag needed:
+
+```yaml
+workspaces:
+  - id: mnist
+    path: ~/experiments/mnist_xp
+    triggers:
+      - "MNIST_*"   # any experiment whose id matches this glob picks this workspace
+```
+
+- **💡 Tip:** This command will write the default config above in your `settings.yaml` if it doesn't already exist.
 
 ```bash
 FILE="$HOME/.config/experimaestro/settings.yaml"; if [ ! -f $FILE ] ; then cat ./xpm_settings.yaml > $FILE ; else echo "$FILE already exists !"; fi
 ```
 
-### Or Specify workspace inline
+#### Or specify workspace inline
 
-If there are no `settings.yaml` provided, you can still specify where you want your experiments to run with the following.
+If there is no `settings.yaml`, you can still specify where you want your experiments to run with:
 
 ```bash
 mkdir $HOME/experiments
 uv run experimaestro run-experiment --workdir $HOME/experiments ...
 ```
 
-# Walktrough
+### Generating a launcher file (single host)
+
+If you run on your laptop / a single machine, experimaestro can auto-detect your hardware (CPU, CUDA GPUs, Apple Silicon MPS) and generate a `launchers.py` for you:
+
+```bash
+uv run experimaestro launchers direct generate
+```
+
+It writes `~/.config/experimaestro/launchers.py` with a memory-based token system so concurrent tasks don't oversubscribe RAM / GPU memory. After this you can use `find_launcher(...)` in `experiment.py` without any cluster configuration — see the [launcher section](#launchers) below.
+
+For SLURM clusters, the equivalent is `experimaestro launchers slurm generate` (interactive TUI). See the [launchers documentation](https://experimaestro-python.readthedocs.io/en/latest/launchers/) for advanced setups.
 
 ## The experiment structure
 
@@ -65,7 +86,7 @@ We will now have a closer look at the key files of this demo repository. In shor
 
 We will also point out the most important objects that allow us to run the experiment.
 
-### `learn.py`
+### `learn.py`: defining the model and tasks
 
 This file contains the code that defines a CNN model, and specifies how to learn
 and evaluate an image classification model.
@@ -88,7 +109,7 @@ class CNN(Config, nn.Module):
 
     kernel_size: Param[int] = 3
     """Kernel size of the CNN"""
-	...
+    ...
 ```
 
 A configuration is characterized by:
@@ -120,10 +141,10 @@ class Learn(Task):
     model: Param[CNN]
     """The model we are training"""
 
-	...
+    ...
 
-	def execute(self):
-		...
+    def execute(self):
+        ...
 ```
 
 You can notice that tasks are specific types of configuration. You can also notice that
@@ -266,26 +287,25 @@ This class describes the configuration needed to run our experiment, The values 
 Please have a look at the `Config` [documentation](https://experimaestro-python.readthedocs.io/en/latest/experiments/config/) for more details.
 
 #### Launchers
-When operating with clusters using workload managers like [`Slurm`](https://slurm.schedmd.com/quickstart.html), experimaestro can manage the sumbission of your Tasks. This can be done easily with a [configuration file](https://experimaestro-python.readthedocs.io/en/latest/launchers/) (that specificies how to launch a task given some specifications), and the `find_launcher` function:
 
-Here, we specified in the configuration above what hardware contraints we need for our Task: training a CNN on MNIST. We can then find a launcher with:
+A **launcher** turns a hardware requirement string (`"duration=1h & gpu(mem=4G)*1 & cpu(cores=4)"`) into a concrete way of running a task — locally, on SLURM, on OAR, etc. The mapping lives in a `launchers.py` file you control (see [Installation](#generating-a-launcher-file-single-host) for the auto-generated version).
+
 ```python
-...
-gpulauncher = find_launcher(cfg.launcher, tags=["slurm"])
+gpulauncher = find_launcher(cfg.launcher)
 ```
-You can have a look at the `Launchers` [documentation](https://experimaestro-python.readthedocs.io/en/latest/launchers/) for more details.
 
-### Running Tasks
-Now we are ready to launch our tasks !
-we use the
+The same line works on a laptop (direct launcher generated by `experimaestro launchers direct generate`) and on a SLURM cluster (configured by `experimaestro launchers slurm generate`): the launcher file is responsible for picking a partition / configuring tokens that satisfy `cfg.launcher`. See the [launchers documentation](https://experimaestro-python.readthedocs.io/en/latest/launchers/) for the requirement DSL and advanced setups (including per-cluster `tags=`).
+
+### Submitting tasks
+
+Now we are ready to launch our tasks. We use a grid search over the hyper-parameters defined in `params.yaml`:
 
 ```python
- for n_layer in cfg.n_layers:
-        for hidden_dim in cfg.hidden_dim:
-            for kernel_size in cfg.kernel_size:
-
-                task = TrainOnMNIST(...)
-				...task.submit(launcher=gpulauncher)... # Submit the Task to Slurm
+for n_layer in cfg.n_layers:
+    for hidden_dim in cfg.hidden_dim:
+        for kernel_size in cfg.kernel_size:
+            task = Learn.C(...)
+            task.submit(launcher=gpulauncher)  # send to the scheduler
 ```
 
 ### `params.yaml`
@@ -364,18 +384,26 @@ gets a `workspace/jobs/<task-id>/<hash>/` folder for its outputs and logs.
 
 ### Monitoring your jobs
 
-Your jobs are now launched. You can display all launched jobs with the following command:
+The recommended way to watch a running experiment is the **TUI** (Textual terminal UI):
+
+```bash
+uv run experimaestro experiments monitor --console
+```
+
+It lists experiments, drills into individual jobs, streams logs, and reflects state changes live. Drop `--console` to launch the web UI on `localhost:12345` instead.
+
+For a non-interactive snapshot, you can still ask the CLI:
+
 ```bash
 uv run experimaestro jobs list --tags
 ```
-it yields:
-```bash
-RUNNING    task.trainonmnist/12feeb6cb9f5f7aad5d0fdcaac5ee057673f7c82485126d8903ecc119b567451 MNIST_train n_layers=1 hidden_dim=32 kernel_size=3
-RUNNING    task.trainonmnist/c9420a1de91830ff467397bd3e1aa592535eac931c9dff7efbad7c0e759c0be3 MNIST_train n_layers=2 hidden_dim=32 kernel_size=3
+
+```text
+RUNNING    task.learn/12feeb6c... MNIST_train n_layers=1 hidden_dim=32 kernel_size=3
+RUNNING    task.learn/c9420a1d... MNIST_train n_layers=2 hidden_dim=32 kernel_size=3
 ```
 
-> 💡 **Bonus**:
-> For better readability, we used `tags` when creating our Tasks, and used the `--tag` flag in the command above. This is why the parameters are diplayed above. See the [docs](https://experimaestro-python.readthedocs.io/en/latest/experiments/plan/#tags) for more details.
+> 💡 **Why are parameters shown?** We wrapped the model parameters in `tag(...)` when constructing them, and passed `--tags` to the CLI. See the [tags documentation](https://experimaestro-python.readthedocs.io/en/latest/experiments/plan/#tags).
 
 ## Post-experiment: Exporting the best model
 
@@ -386,7 +414,7 @@ into a results folder, etc. Experimaestro provides
 (alpha): `Config` subclasses that are registered during the experiment and
 executed afterwards via the CLI / TUI.
 
-The demo defines [`ExportBestModel`](mnist_xp/actions.py) which compares every
+The demo defines [`ExportBestModel`](https://github.com/experimaestro/experimaestro-demo/blob/main/mnist_xp/actions.py) which compares every
 evaluation's accuracy and copies the winning model's `parameters.pth` to a
 location of your choice. It is registered at the end of `experiment.py`:
 
@@ -415,7 +443,43 @@ The CLI asks where to copy the best model's parameters (default:
 `./mnist-best.pth`) and reports its accuracy. Re-running the action is safe
 and idempotent — it just re-reads the results CSVs and copies the file again.
 
-## TODOs
+## Post-experiment: analysing the results
 
-Installation:
-- [ ] Detail how to install the launcher file as well.
+When the experiment finalises, experimaestro writes a streaming serialisation
+of every submitted `Config` (with tags and shared references preserved) to
+`<workspace>/experiments/<experiment-id>/<run-id>/objects.jsonl`. You can read
+it back from any later script — no experiment context, no in-memory state from
+`experiment.py` — using
+[`load_xp_info`](https://experimaestro-python.readthedocs.io/en/latest/api/index.html#experimaestro.load_xp_info).
+
+The demo ships a ready-to-run example at
+[`mnist_xp/analyze.py`](https://github.com/experimaestro/experimaestro-demo/blob/main/mnist_xp/analyze.py):
+
+```bash
+uv run python -m mnist_xp.analyze
+```
+
+It builds a `WorkspaceStateProvider` against the workspace path and asks for the
+latest run of `MNIST_train`:
+
+```python
+from pathlib import Path
+from experimaestro import load_xp_info, tags
+from experimaestro.scheduler.workspace_state_provider import WorkspaceStateProvider
+
+provider = WorkspaceStateProvider(Path("~/experiments/mnist_xp").expanduser())
+
+# run_id=None picks the most recent run for that experiment id.
+info = provider.load_xp_info("MNIST_train")   # ExperimentInfo(jobs=..., actions=...)
+
+# `info.jobs` holds the deserialised Evaluate configs (with their tags),
+# `info.actions` holds the registered ExportBestModel action.
+```
+
+If you already know the exact run directory, the standalone
+`load_xp_info(run_dir)` works too. See the full
+[analysis guide](https://experimaestro-python.readthedocs.io/en/latest/experiments/analysis.html)
+for more patterns (building DataFrames from tagged results, working with
+actions, etc.).
+
+<!-- doc:end -->

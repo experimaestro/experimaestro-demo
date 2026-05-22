@@ -1,11 +1,10 @@
 """Author : Victor MORAND"""
 
 import logging
-import pandas as pd
 from shutil import rmtree
 from datamaestro import prepare_dataset
 from experimaestro.experiments import ExperimentHelper, configuration
-from experimaestro import tag, tags
+from experimaestro import tag
 from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
 
@@ -34,17 +33,22 @@ class Configuration(ConfigurationBase):
     batch_size: int = 32  # batch size
 
     # --- Misc
-    launcher: str = """duration=3h & cuda(mem=4G)*1 & cpu(cores=2)"""
+    # `gpu(...)` is a generic accelerator spec — matches CUDA on Linux and
+    # MPS on Apple Silicon. Override in params.yaml for cluster setups.
+    launcher: str = """duration=3h & gpu(mem=4G)*1 & cpu(cores=2)"""
 
 
 def run(helper: ExperimentHelper, cfg: Configuration):
     logging.debug(cfg)
-    # Find a launcher to run our tasks given the given cfg.launcher
-    gpulauncher = find_launcher(cfg.launcher, tags={"slurm"})
+    # Find a launcher to run our tasks given the given cfg.launcher.
+    # Works for any registered launcher (direct / slurm / oar / ...) — the
+    # user's ~/.config/experimaestro/launchers.py decides how to satisfy the
+    # requirement. Pass `tags={"slurm"}` etc. only if you have multiple
+    # launchers tagged differently.
+    gpulauncher = find_launcher(cfg.launcher)
 
     logging.info(f"Will Launch Tasks using launcher: {gpulauncher}")
 
-    evaluations = []
     candidates: list[EvaluatedModel] = []
     logging.info("Experimaestro will launch tasks for each combination of parameters")
 
@@ -96,7 +100,6 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 learn_task = task  # keep a reference to read parameters_path
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
                 evaluate.submit(init_tasks=[loader])
-                evaluations.append(evaluate)
 
                 # Collect candidate for the post-experiment "export best" action
                 candidates.append(
@@ -112,20 +115,9 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     #   uv run experimaestro experiments actions run <experiment-id>
     helper.xp.add_action(ExportBestModel.C(candidates=candidates))
 
-    # Wait that everything finishes
+    # Wait that everything finishes.
     helper.xp.wait()
 
-    # OK, now we can look at the results
-    dfs = []
-    for evaluation in evaluations:
-        if evaluation.results_path.exists():
-            df = pd.read_csv(evaluation.results_path)
-            for key, value in tags(evaluation).items():
-                df[key] = value
-            dfs.append(df)
-        else:
-            logging.error("No results found in %s", evaluation.results_path)
-
-    if dfs:
-        df = pd.concat(dfs)
-        print(df)  # noqa: T201
+    # Results are written to <run-dir>/objects.jsonl as they finish; read
+    # them back later with `analyze.py` (uses load_xp_info / tags).
+    logging.info("Run `python -m mnist_xp.analyze` to inspect the results.")
