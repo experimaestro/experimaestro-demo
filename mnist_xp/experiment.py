@@ -4,7 +4,7 @@ import logging
 from shutil import rmtree
 from datamaestro import prepare_dataset
 from experimaestro.experiments import ExperimentHelper, configuration
-from experimaestro import tag
+from experimaestro import RunMode, tag
 from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
 
@@ -52,20 +52,25 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     candidates: list[EvaluatedModel] = []
     logging.info("Experimaestro will launch tasks for each combination of parameters")
 
-    # Add tensorboard service
-    tb = TensorboardService(helper.xp.resultspath / "runs")
-    helper.xp.add_service(tb)
-
     # This downloads the dataset if needed
     ds_mnist = prepare_dataset(MNISTDataset)
 
-    # This path will contain all the tensorboard data
-    run_path = (
-        helper.xp.resultspath / "runs"
-    )  # using pathlib.Path for cross-platform compatibility
-    if run_path.is_dir():
-        rmtree(run_path)
-    run_path.mkdir(exist_ok=True, parents=True)
+    # Add tensorboard service
+    if helper.xp.workspace.run_mode != RunMode.DRY_RUN:
+        # DRY RUN is used for testing the experiment code, 
+        # without actually launching tasks or writing results. Skip services in that case.
+        tb = TensorboardService(helper.xp.resultspath / "runs")
+        helper.xp.add_service(tb)
+
+        # This path will contain all the tensorboard data
+        run_path = (
+            helper.xp.resultspath / "runs"
+        )  # using pathlib.Path for cross-platform compatibility
+        if run_path.is_dir():
+            rmtree(run_path)
+        run_path.mkdir(exist_ok=True, parents=True)
+    else:
+        tb = None  # no tensorboard in dry run
 
     # GridSearch: Launch a task for each combination of parameters
     for n_layer in cfg.n_layers:
@@ -94,7 +99,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
 
                 # Submit the task
                 loader = task.submit(launcher=gpulauncher)
-                tb.add(task, task.run_path)
+                if tb: tb.add(task, task.run_path)
 
                 # Evaluate the model on the test set
                 learn_task = task  # keep a reference to read parameters_path
