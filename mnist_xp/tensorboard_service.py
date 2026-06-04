@@ -1,3 +1,4 @@
+from typing import Optional
 import logging
 import re
 import time
@@ -16,8 +17,8 @@ from experimaestro.scheduler.services import ProcessWebService
 class TensorboardService(ProcessWebService):
     id = "tensorboard"
 
-    def __init__(self, path: Path):
-        super().__init__()
+    def __init__(self, path: Path, log_directory: Optional[Path] = None):
+        super().__init__(log_directory=log_directory)
 
         self.path = path
         logging.info("Tensorboard path is %s", self.path)
@@ -34,7 +35,9 @@ class TensorboardService(ProcessWebService):
             logging.info("tensorboard --logdir=%s", self.path)
 
     def state_dict(self):
-        return {"path": self.path}
+        state = super().state_dict()
+        state.update({"path": self.path})
+        return state
 
     def add(self, task: Task, path: Path):
         if not self.active:
@@ -71,6 +74,14 @@ class TensorboardService(ProcessWebService):
     def _wait_for_ready(self) -> str:
         """Poll stdout and stderr for TensorBoard's URL announcement."""
         url_pattern = re.compile(r"https?://localhost:\d+\S*")
+
+        # Safety check: if we don't have log files, we can't wait for ready
+        if not self.stdout and not self.stderr:
+            logging.error("No log files available for TensorBoard - cannot detect URL")
+            # Fallback or raise? For now let's try to wait a bit and hope,
+            # but this is likely why it freezes.
+            raise RuntimeError("TensorBoard log files are missing (log_directory is None)")
+
         while True:
             if self.process and self.process.poll() is not None:
                 err = ""
