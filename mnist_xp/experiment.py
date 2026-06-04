@@ -84,7 +84,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                     n_layers=tag(n_layer),
                 )
 
-                task = (
+                learn_task = (
                     Learn.C(
                         # Defines the data and model used for training
                         data=ds_mnist.train,
@@ -98,11 +98,11 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 )
 
                 # Submit the task
-                loader = task.submit(launcher=gpulauncher)
-                if tb: tb.add(task, task.run_path)
+                loader = learn_task.submit(launcher=gpulauncher)
+                # Add tensorboard logs to the service, so that they are available in the UI as soon as the task starts writing them
+                if tb: tb.add(learn_task, learn_task.run_path)
 
                 # Evaluate the model on the test set
-                learn_task = task  # keep a reference to read parameters_path
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
                 evaluate.submit(init_tasks=[loader])
 

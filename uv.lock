@@ -549,7 +549,7 @@ carbon = [
 [[package]]
 name = "experimaestro-demo"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "datamaestro" },
     { name = "experimaestro", extra = ["carbon"] },
