@@ -17,7 +17,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "matplotlib>=3.10.9",
     "mypy>=1.19.1",
+    "networkx>=3.4.2",
     "ruff>=0.14.11",
 ]
 
