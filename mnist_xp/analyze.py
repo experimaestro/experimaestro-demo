@@ -20,7 +20,7 @@ import pandas as pd
 
 from experimaestro import tags
 from experimaestro.scheduler.workspace_state_provider import WorkspaceStateProvider
-
+from experimaestro.settings import find_workspace
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
@@ -44,7 +44,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    provider = WorkspaceStateProvider(args.workspace)
+    logging.info("Loading experiment info from workspace %s, experiment id %s, run id %s", args.workspace, args.experiment_id, args.run_id)
+    if args.workspace.exists() and (args.workspace / "experiments").exists():
+        logging.info("Workspace found at %s", args.workspace)
+        workspace = args.workspace
+    else:
+        logging.warning("Workspace not found at %s", args.workspace)
+        ws = find_workspace()
+        workspace = ws.path
+        logging.info("Using default workspace %s at %s", ws.id, workspace)
+    provider = WorkspaceStateProvider(workspace)
     info = provider.load_xp_info(args.experiment_id, run_id=args.run_id)
 
     rows = []
