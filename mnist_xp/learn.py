@@ -29,13 +29,13 @@ def count_parameters(model):
 class CNN(Config, nn.Module):
     """Defines a CNN model"""
 
-    n_layers: Param[int] = 2
+    n_layers: Param[int] = field(default=2, ignore_default=True)
     """Number of Hidden layers"""
 
-    hidden_dim: Param[int] = 64
+    hidden_dim: Param[int] = field(default=64, ignore_default=True)
     """Number of hidden units"""
 
-    kernel_size: Param[int] = 3
+    kernel_size: Param[int] = field(default=3, ignore_default=True)
     """Kernel size of the CNN"""
     # --8<-- [end:cnn]
 
@@ -92,7 +92,7 @@ class Evaluate(Task):
 
     data: Param[LabelledImages]
 
-    batch_size: Meta[int] = 64
+    batch_size: Meta[int] = field(default=64, ignore_default=True)
     """Batch size"""
 
     results_path: Meta[Path] = field(default_factory=PathGenerator("results.csv"))
@@ -151,16 +151,16 @@ class Learn(Task):
     model: Param[CNN]
     """The model we are training"""
 
-    epochs: Param[int] = 1
+    epochs: Param[int] = field(default=1, ignore_default=True)
     """number of epochs to train the model"""
 
-    n_val: Param[int] = 100
+    n_val: Param[int] = field(default=100, ignore_default=True)
     """number of steps between validation and logging"""
 
-    lr: Param[float] = 1e-2
+    lr: Param[float] = field(default=1e-2, ignore_default=True)
     """learning rate"""
 
-    batch_size: Param[int] = 64
+    batch_size: Param[int] = field(default=64, ignore_default=True)
     """Batch size"""
 
     # can be changed if needed to rerun the task with same parameters
