@@ -137,21 +137,34 @@ def compute_dag_layout(full_jobs: dict, dependencies: dict[str, list[str]], depe
 
     pos = {}
     unique_depths = sorted(set(depths.values()))
+    nodes_per_type = {}
     for d in unique_depths:
         nodes_at_depth = [jid for jid, depth in depths.items() if depth == d]
         
         # Compute desired Y (average of parents)
         desired_y = {}
         for jid in nodes_at_depth:
+            # Get Y of parents to try to align vertically with them
             p_ys = [pos[p][1] for p in preds[jid] if p in pos]
+
+            # get Y of evenly spaced siblings of the same type at this depth to help group by type
+            tname = type(full_jobs[jid]).__name__
+            sibling_ys = [pos[s][1] for s in nodes_per_type.get(tname, []) if s in pos]
+            p_ys.extend(sibling_ys)
+            
             desired_y[jid] = sum(p_ys) / len(p_ys) if p_ys else 0
             
         # Sort primarily by type name to create consistent vertical "bands"
         # Secondarily by desired Y to keep arrows as straight as possible within bands
-        nodes_at_depth.sort(key=lambda j: (type(full_jobs[j]).__name__, -desired_y[j], j))
+        nodes_at_depth.sort(key=lambda j: ( -desired_y[j], type(full_jobs[j]).__name__, j))
         
         for i, jid in enumerate(nodes_at_depth):
             pos[jid] = (d * x_spacing, -i * y_spacing)
+
+        #save nodes per type for this depth to help with plotting
+        for jid in nodes_at_depth:
+            tname = type(full_jobs[jid]).__name__
+            nodes_per_type.setdefault(tname, []).append(jid)
                 
     return depths, pos, reduced_dag
 
