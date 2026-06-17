@@ -78,8 +78,6 @@ def print_robust_tree(
         if already_visited:
             label += " (already shown)"
 
-        marker = "└── " if is_last_node else "├── "
-        print(f"{prefix}{marker}{label}")
 
         if already_visited:
             continue
@@ -368,8 +366,7 @@ def main() -> None:
     try:
         run_id = args.run_id or provider.get_current_run(args.experiment_id)
         run_dir = provider.workspace_path / "experiments" / args.experiment_id / run_id
-    except Exception as e:
-        print(f"Error: {e}")
+    except Exception:
         return
 
 
@@ -436,7 +433,6 @@ def main() -> None:
                     if "job_id" in job_data and "tags" in job_data:
                         job_tags_dict[job_data["job_id"]] = job_data["tags"]
 
-    print(f"Flow graph for {args.experiment_id} (run: {run_id}):")
     tree_roots = [jid for jid in full_jobs if not dependencies.get(jid)]
     print_robust_tree(
         tree_roots,

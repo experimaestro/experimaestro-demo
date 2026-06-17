@@ -94,7 +94,8 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 # Submit the task
                 loader = learn_task.submit(launcher=gpulauncher)
                 # Add tensorboard logs to the service
-                if tb: tb.add(learn_task, learn_task.run_path)
+                if tb:
+                    tb.add(learn_task, learn_task.run_path)
 
                 # Evaluate the model on the test set
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
