@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "datamaestro>=1.7.4",
-    "experimaestro[carbon]>=2.1.5",
+    "experimaestro[carbon]>=2.5.2",
     "nvidia-ml-py>=13.590.44",
     "pandas>=2.2.3",
     "setuptools>=70,<81",
@@ -44,14 +44,6 @@ ignore = [
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
-
-[tool.uv.workspace]
-members = [
-    "experimaestro-python",
-]
-
-[tool.uv.sources]
-experimaestro = { workspace = true }
 
 [build-system]
 requires = ["setuptools>=61.0"]
