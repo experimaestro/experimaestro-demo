@@ -339,147 +339,29 @@ n_val: 100      # number of steps between validation and logging
 We will launch one job for each possible combination of `hidden_dim`,`n_layers` and `kernel_size`.
 
 ## Running the Experiment
-Now that everything is set up, we can run our experiment
-```bash
-uv run experimaestro run-experiment mnist_xp/params.yaml
-```
 
-Now experimaestro will:
-- Lock the experiment `MNIST_train` so that you cannot relaunch it while this one is running.
-- Run `experiment.py` with the configuration values read in `params.yaml`
-- For each Task submitted in the experiment:
-	- A unique hash ID is created depending on the parameters given to the task.
-		- This ensures that you don't run the Task with the same params twice.
-	- A folder is created in the `workspace/jobs/task-id` , it will be the working directory for the Task
-		- here you can find the logs and the outputs of the running Task
+Run the basic experiment with these three steps:
 
-### Pre-downloading the dataset (offline / SLURM)
+1.  **Configure your workspace and launcher** (see [Installation](#installation)).
+2.  **Run the experiment:**
+    ```bash
+    uv run experimaestro run-experiment mnist_xp/params.yaml
+    ```
+3.  **Monitor with the TUI:**
+    ```bash
+    uv run experimaestro experiments monitor --console
+    ```
 
-The script calls `prepare_dataset(MNISTDataset)`. Inside an experiment, this
-returns a [`Prepare`](https://experimaestro-python.readthedocs.io/en/latest/experiments/config/#prepare-configurations-data-preparation)
-config: experimaestro will call its `prepare()` (the MNIST download) **once,
-before any Learn task runs**, in the driver process. Idempotent: a warm cache
-makes it a no-op on subsequent runs.
+Experimaestro will:
+- Lock the experiment `MNIST_train` to prevent concurrent runs.
+- Execute `mnist_xp/experiment.py` using values from `params.yaml`.
+- Create a unique hash ID and workspace folder for each task based on its parameters.
 
-If you're about to submit jobs to an offline cluster (compute nodes without
-internet), pre-warm the cache from your driver / login node with:
+---
 
-```bash
-uv run experimaestro run-experiment --run-mode prepare mnist_xp/params.yaml
-```
-
-This walks every `Prepare` referenced by submitted tasks (here: MNIST) and
-runs only their `prepare()` methods — **no Learn or Evaluate jobs are
-launched**. After this, you can run the normal command (no internet needed):
-
-```bash
-uv run experimaestro run-experiment mnist_xp/params.yaml
-```
-
-**Where the data ends up.** In PREPARE mode, no `workspace/jobs/...` folders
-are created — the only on-disk effect is what `prepare()` itself writes. For
-this demo that means the torchvision `MNIST` files under `~/.cache/datamaestro/`
-(datamaestro's resource store). Compare with NORMAL mode where each Task also
-gets a `workspace/jobs/<task-id>/<hash>/` folder for its outputs and logs.
-
-### Monitoring your jobs
-
-The recommended way to watch a running experiment is the **TUI** (Textual terminal UI):
-
-```bash
-uv run experimaestro experiments monitor --console
-```
-
-It lists experiments, drills into individual jobs, streams logs, and reflects state changes live. Drop `--console` to launch the web UI on `localhost:12345` instead.
-
-For a non-interactive snapshot, you can still ask the CLI:
-
-```bash
-uv run experimaestro jobs list --tags
-```
-
-```text
-RUNNING    task.learn/12feeb6c... MNIST_train n_layers=1 hidden_dim=32 kernel_size=3
-RUNNING    task.learn/c9420a1d... MNIST_train n_layers=2 hidden_dim=32 kernel_size=3
-```
-
-> 💡 **Why are parameters shown?** We wrapped the model parameters in `tag(...)` when constructing them, and passed `--tags` to the CLI. See the [tags documentation](https://experimaestro-python.readthedocs.io/en/latest/experiments/plan/#tags).
-
-## Post-experiment: Exporting the best model
-
-Once every Learn / Evaluate finishes, you usually want to *do* something with
-the results — pick the best model, push it to HuggingFace Hub, copy artefacts
-into a results folder, etc. Experimaestro provides
-[Actions](https://experimaestro-python.readthedocs.io/en/latest/experiments/actions/)
-(alpha): `Config` subclasses that are registered during the experiment and
-executed afterwards via the CLI / TUI.
-
-The demo defines [`ExportBestModel`](https://github.com/experimaestro/experimaestro-demo/blob/main/mnist_xp/actions.py) which compares every
-evaluation's accuracy and copies the winning model's `parameters.pth` to a
-location of your choice. It is registered at the end of `experiment.py`:
-
-```python
-from .actions import EvaluatedModel, ExportBestModel
-
-# (in the loop, after each Learn/Evaluate submit)
-candidates.append(EvaluatedModel.C(
-    cnn=model,
-    parameters_path=learn_task.parameters_path,
-    results_path=evaluate.results_path,
-))
-
-# (after the loop, before helper.xp.wait())
-helper.xp.add_action(ExportBestModel.C(candidates=candidates))
-```
-
-After the experiment finishes, list and run the action:
-
-```bash
-uv run experimaestro experiments actions list MNIST_train
-uv run experimaestro experiments actions run MNIST_train <action-id>
-```
-
-The CLI asks where to copy the best model's parameters (default:
-`./mnist-best.pth`) and reports its accuracy. Re-running the action is safe
-and idempotent — it just re-reads the results CSVs and copies the file again.
-
-## Post-experiment: analysing the results
-
-When the experiment finalises, experimaestro writes a streaming serialisation
-of every submitted `Config` (with tags and shared references preserved) to
-`<workspace>/experiments/<experiment-id>/<run-id>/objects.jsonl`. You can read
-it back from any later script — no experiment context, no in-memory state from
-`experiment.py` — using
-[`load_xp_info`](https://experimaestro-python.readthedocs.io/en/latest/api/index.html#experimaestro.load_xp_info).
-
-The demo ships a ready-to-run example at
-[`mnist_xp/analyze.py`](https://github.com/experimaestro/experimaestro-demo/blob/main/mnist_xp/analyze.py):
-
-```bash
-uv run python -m mnist_xp.analyze
-```
-
-It builds a `WorkspaceStateProvider` against the workspace path and asks for the
-latest run of `MNIST_train`:
-
-```python
-from pathlib import Path
-from experimaestro import load_xp_info, tags
-from experimaestro.scheduler.workspace_state_provider import WorkspaceStateProvider
-
-provider = WorkspaceStateProvider(Path("~/experiments/mnist_xp").expanduser())
-
-# run_id=None picks the most recent run for that experiment id.
-info = provider.load_xp_info("MNIST_train")   # ExperimentInfo(jobs=..., actions=...)
-
-# `info.jobs` holds the deserialised Evaluate configs (with their tags),
-# `info.actions` holds the registered ExportBestModel action.
-```
-
-If you already know the exact run directory, the standalone
-`load_xp_info(run_dir)` works too. See the full
-[analysis guide](https://experimaestro-python.readthedocs.io/en/latest/experiments/analysis.html)
-for more patterns (building DataFrames from tagged results, working with
-actions, etc.).
+**🚀 Ready for more?** Check out the [**Advanced Guide (ADVANCED.md)**](./ADVANCED.md) to learn about:
+- **Declarative Grid Search:** Using the `GridSearch` component.
+- **Post-Experiment Actions:** Automatically exporting the best model.
+- **Complex DAGs:** Visualizing task dependencies.
 
 <!-- doc:end -->

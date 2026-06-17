@@ -351,7 +351,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--workspace", type=Path, default=Path("~/experiments/mnist_xp").expanduser()
+        "--workspace", type=Path, default=Path("~/experiments/mnist_xp_advanced").expanduser()
     )
     parser.add_argument("--experiment-id", default="MNIST_train")
     parser.add_argument("--run-id", default=None)
