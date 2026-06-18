@@ -25,28 +25,39 @@ def test_demo_smoke(tmp_path):
         "DATAMAESTRO_DIR": str(tmp_path / "datamaestro"),
     }
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "experimaestro",
-            "run-experiment",
-            "--workdir",
-            str(tmp_path / "xp"),
-            "--xpm-config-dir",
-            str(TESTS_DIR / "xpm-config"),
-            "--no-db",
-            str(TESTS_DIR / "params-ci.yaml"),
-        ],
-        cwd=DEMO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
+    cmd = [
+        sys.executable,
+        "-m",
+        "experimaestro",
+        "run-experiment",
+        "--workdir",
+        str(tmp_path / "xp"),
+        "--xpm-config-dir",
+        str(TESTS_DIR / "xpm-config"),
+        "--no-db",
+        str(TESTS_DIR / "params-ci.yaml"),
+    ]
+
+    # Redirect to a file rather than capture_output (PIPEs): the demo starts a
+    # TensorboardService whose server process inherits the pipes and lingers, so
+    # communicate() would block on pipe EOF long after the experiment finished.
+    # With a file, run() only waits for the experiment process itself to exit.
+    log_path = tmp_path / "run.log"
+    with open(log_path, "w") as log_file:
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=DEMO_ROOT,
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                timeout=600,
+            )
+        except subprocess.TimeoutExpired:
+            raise AssertionError(
+                f"run-experiment timed out\n{log_path.read_text()[-6000:]}"
+            )
 
     assert result.returncode == 0, (
-        f"run-experiment failed ({result.returncode})\n"
-        f"--- stdout ---\n{result.stdout[-4000:]}\n"
-        f"--- stderr ---\n{result.stderr[-4000:]}"
+        f"run-experiment failed ({result.returncode})\n{log_path.read_text()[-6000:]}"
     )
