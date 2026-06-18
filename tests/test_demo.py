@@ -19,8 +19,19 @@ DEMO_ROOT = TESTS_DIR.parent
 
 
 def test_demo_smoke(tmp_path):
+    # Disable carbon tracking for the smoke test: it depends on codecarbon (an
+    # external tool that does network geolocation and spawns measurement
+    # threads) which is not what this test validates, and is the same config
+    # experimaestro's own test suite runs under. The experiment pipeline
+    # (scheduling, deps, task execution) is what we smoke-test here.
+    fake_home = tmp_path / "home"
+    xpm_cfg = fake_home / ".config" / "experimaestro"
+    xpm_cfg.mkdir(parents=True)
+    (xpm_cfg / "settings.yaml").write_text("carbon:\n  enabled: false\n")
+
     env = {
         **os.environ,
+        "HOME": str(fake_home),
         # Keep the fake dataset out of the real ~/datamaestro cache.
         "DATAMAESTRO_DIR": str(tmp_path / "datamaestro"),
     }
