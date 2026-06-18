@@ -76,9 +76,9 @@ jobs:
             "experimaestro[carbon] @ git+https://github.com/experimaestro/experimaestro-python@${{ steps.rev.outputs.xpm }}" \
             "datamaestro @ git+https://github.com/experimaestro/datamaestro@${{ steps.rev.outputs.dm }}"
 
-      - name: Run the demo experiment (fast, fake data)
+      - name: Run the demo smoke test (fast, fake data)
         if: steps.decide.outputs.run == 'true'
-        run: uv run experimaestro run-experiment mnist_xp/params-ci.yaml --workdir "$RUNNER_TEMP/ci"
+        run: uv run pytest -q
 
       # Record this pair as tested, but only if the run passed, so a broken
       # upstream is retried until fixed instead of being marked done.

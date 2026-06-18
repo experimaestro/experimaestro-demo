@@ -18,8 +18,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
+    "pytest>=8",
     "ruff>=0.14.11",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.mypy]
 plugins = ["experimaestro.mypy"]
