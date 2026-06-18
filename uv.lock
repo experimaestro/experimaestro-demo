@@ -554,7 +554,7 @@ nvtx = [
 
 [[package]]
 name = "datamaestro"
-version = "1.14.0"
+version = "1.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bitmath" },
@@ -574,9 +574,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/38/27b17b5a4086acf62f76d44e8bfa826ac8dc44a0063cd9491546e4dd7807/datamaestro-1.14.0.tar.gz", hash = "sha256:a8f45eebdccf0ade46df47e30b0fa1d20f4f58e700d4681990b203c8abaaef68", size = 295287, upload-time = "2026-05-21T15:41:46.615Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/1e/2fc78232f5638cf83959a7f1855d75717cb47325a8459476ff58a74b3bb2/datamaestro-1.15.0.tar.gz", hash = "sha256:7d23cc42b32e71e48836c1afe87f355644caa5f45c81f014522228225854d0ea", size = 297218, upload-time = "2026-06-18T07:52:14.68Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/f6/1e4fcc3bbc09cfd0d1636b5a8d0a72a3aa8b2a032d36f84945216f27a8b9/datamaestro-1.14.0-py3-none-any.whl", hash = "sha256:3ff2c2dc8b6c904a0ff9952f0cd146244bac562dccab6eb6fce487dc02369256", size = 137290, upload-time = "2026-05-21T15:41:45.176Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/db/f46d458a7f9717732fef062766fb4a2c7b4c1fa0e4672e89e075d7441a77/datamaestro-1.15.0-py3-none-any.whl", hash = "sha256:dffa1e07c494269e4dabc98f7a7a99cebe7db9464a861029850583efa090387c", size = 139077, upload-time = "2026-06-18T07:52:13.16Z" },
 ]
 
 [[package]]
@@ -677,7 +677,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datamaestro", specifier = ">=1.7.4" },
+    { name = "datamaestro", specifier = ">=1.15.0" },
     { name = "experimaestro", extras = ["carbon"], specifier = ">=2.5.2" },
     { name = "nvidia-ml-py", specifier = ">=13.590.44" },
     { name = "pandas", specifier = ">=2.2.3" },

@@ -37,6 +37,9 @@ class Configuration(ConfigurationBase):
     # MPS on Apple Silicon. Override in params.yaml for cluster setups.
     launcher: str = """duration=3h & gpu(mem=4G)*1 & cpu(cores=2)"""
 
+    # Use a tiny fake dataset instead of MNIST (fast CI smoke test). See params-ci.yaml.
+    fake_data: bool = False
+
 
 def run(helper: ExperimentHelper, cfg: Configuration):
     logging.debug(cfg)
@@ -52,8 +55,13 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     candidates: list[EvaluatedModel] = []
     logging.info("Experimaestro will launch tasks for each combination of parameters")
 
-    # This downloads the dataset if needed
-    ds_mnist = prepare_dataset(MNISTDataset)
+    # This downloads the dataset if needed (or a tiny fake one in CI)
+    if cfg.fake_data:
+        from .fake_data import fake_mnist
+
+        ds_mnist = fake_mnist()
+    else:
+        ds_mnist = prepare_dataset(MNISTDataset)
 
     # Add tensorboard service
     if helper.xp.workspace.run_mode != RunMode.DRY_RUN:
@@ -100,7 +108,8 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 # Submit the task
                 loader = learn_task.submit(launcher=gpulauncher)
                 # Add tensorboard logs to the service, so that they are available in the UI as soon as the task starts writing them
-                if tb: tb.add(learn_task, learn_task.run_path)
+                if tb:
+                    tb.add(learn_task, learn_task.run_path)
 
                 # Evaluate the model on the test set
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
