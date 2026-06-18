@@ -70,5 +70,5 @@ def _dump_job_logs(workdir: Path) -> str:
     chunks = []
     for p in sorted(workdir.rglob("*")):
         if p.is_file() and p.suffix in {".out", ".err", ".log"} and p.stat().st_size:
-            chunks.append(f"--- {p.relative_to(workdir)} ---\n{p.read_text()[-2000:]}")
+            chunks.append(f"--- {p.relative_to(workdir)} ---\n{p.read_text()[-5000:]}")
     return "\n".join(chunks) or "(no job logs found)"
