@@ -51,13 +51,24 @@ def test_demo_smoke(tmp_path):
                 env=env,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
-                timeout=600,
+                timeout=200,
             )
         except subprocess.TimeoutExpired:
             raise AssertionError(
-                f"run-experiment timed out\n{log_path.read_text()[-6000:]}"
+                f"run-experiment timed out\n{log_path.read_text()[-4000:]}"
+                f"\n{_dump_job_logs(tmp_path / 'xp')}"
             )
 
     assert result.returncode == 0, (
-        f"run-experiment failed ({result.returncode})\n{log_path.read_text()[-6000:]}"
+        f"run-experiment failed ({result.returncode})\n{log_path.read_text()[-4000:]}"
+        f"\n{_dump_job_logs(tmp_path / 'xp')}"
     )
+
+
+def _dump_job_logs(workdir: Path) -> str:
+    """Collect task stdout/stderr/log files for diagnosing a hang."""
+    chunks = []
+    for p in sorted(workdir.rglob("*")):
+        if p.is_file() and p.suffix in {".out", ".err", ".log"} and p.stat().st_size:
+            chunks.append(f"--- {p.relative_to(workdir)} ---\n{p.read_text()[-2000:]}")
+    return "\n".join(chunks) or "(no job logs found)"
