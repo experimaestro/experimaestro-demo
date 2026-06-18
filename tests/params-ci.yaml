@@ -10,8 +10,10 @@ pythonpath: [..]
 # Resolved relative to this yaml file's directory by run-experiment.
 pre_experiment: fake_mnist.py
 
-# CI checkouts are clean; don't fail if experimaestro is installed from git
-dirty_git: ignore
+# NB: dirty_git is intentionally left at its default (WARN). Specifying it from
+# YAML is fragile: the config loader (omegaconf) coerces the str-enum by member
+# NAME while pydantic validation coerces by value, so no single spelling works
+# across versions. WARN just logs on a dirty tree, which is fine for CI.
 
 # The localhost launcher (tests/xpm-config/launchers.py, via --xpm-config-dir)
 # resolves any spec to a local DirectLauncher, so this value is only a label.
