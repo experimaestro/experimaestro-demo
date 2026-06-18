@@ -19,18 +19,8 @@ DEMO_ROOT = TESTS_DIR.parent
 
 
 def test_demo_smoke(tmp_path):
-    # Pin a carbon-tracking location so codecarbon uses its OFFLINE tracker and
-    # skips the IP geolocation lookup. That network lookup can leave a stray
-    # non-daemon thread that keeps the finished task process alive on Linux,
-    # which wedges the scheduler (it waits for the process to exit).
-    fake_home = tmp_path / "home"
-    xpm_cfg = fake_home / ".config" / "experimaestro"
-    xpm_cfg.mkdir(parents=True)
-    (xpm_cfg / "settings.yaml").write_text("carbon:\n  country_iso_code: FRA\n")
-
     env = {
         **os.environ,
-        "HOME": str(fake_home),
         # Keep the fake dataset out of the real ~/datamaestro cache.
         "DATAMAESTRO_DIR": str(tmp_path / "datamaestro"),
     }
