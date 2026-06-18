@@ -76,9 +76,12 @@ jobs:
             "experimaestro[carbon] @ git+https://github.com/experimaestro/experimaestro-python@${{ steps.rev.outputs.xpm }}" \
             "datamaestro @ git+https://github.com/experimaestro/datamaestro@${{ steps.rev.outputs.dm }}"
 
+      # --no-sync is essential: a plain `uv run` re-syncs the env to the
+      # lockfile and would uninstall the git-master experimaestro/datamaestro
+      # installed above, silently testing the released version instead.
       - name: Run the demo smoke test (fast, fake data)
         if: steps.decide.outputs.run == 'true'
-        run: uv run pytest -q
+        run: uv run --no-sync pytest -q
 
       # Record this pair as tested, but only if the run passed, so a broken
       # upstream is retried until fixed instead of being marked done.
