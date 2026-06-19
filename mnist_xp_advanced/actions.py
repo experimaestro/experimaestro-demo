@@ -16,8 +16,7 @@ import shutil
 from pathlib import Path
 
 from experimaestro import Action, Config, Interaction, Param
-
-from .learn import CNN
+from mnist_xp.learn import CNN
 
 
 class EvaluatedModel(Config):

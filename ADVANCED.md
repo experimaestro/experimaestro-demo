@@ -8,19 +8,31 @@ The advanced demo (`mnist_xp_advanced/experiment.py`) demonstrates features desi
 
 ### Declarative Grid Search
 
-While the basic demo uses manual Python `for` loops to sweep over hyperparameters, the advanced demo introduces the `GridSearch` component. 
+The advanced demo leverages Experimaestro's unified [`GridSearch[T]`](https://experimaestro-python.readthedocs.io/en/latest/experiments/grid_search.html) system to define and run parameter sweeps cleanly, avoiding complex nested loops. 
 
-```python
-from experimaestro import GridSearch, tag
+1. **Type Hints in the Configuration**:
+   Fields representing hyperparameters use the `GridSearch[T]` type hint. This allows fields to accept single values, lists of values, or ranges in the configuration files (such as `params.yaml`).
 
-search = GridSearch()
-for n_layer in cfg.n_layers:
-    with search.case(n_layers=tag(n_layer)):
-        # Tasks created here are automatically associated with these tags
-        ...
-```
+   ```python
+   from experimaestro.experiments.grid import GridSearch
 
-The `GridSearch` component provides a cleaner, more declarative way to manage hyperparameter sweeps, especially as the number of dimensions grows.
+   @configuration
+   class Configuration(ConfigurationBase):
+       n_layers: GridSearch[int] = 3
+       hidden_dim: GridSearch[int] = 64
+       kernel_size: GridSearch[int] = 3
+   ```
+
+2. **Generating Grid Permutations**:
+   In the `run` method, calling `generate_grid(cfg)` automatically scans the configuration for search spaces, computes the Cartesian product of all combinations, and returns:
+   - `configurations`: A list of copy-finalized configuration permutations (where all `GridSearch` fields are resolved to concrete scalar types like `int`).
+   - `all_tags`: The list of parameter tags corresponding to each permutation.
+
+   ```python
+   from experimaestro.experiments.grid import generate_grid
+
+   configurations, all_tags = generate_grid(cfg)
+   ```
 
 ### Post-Experiment Actions
 
