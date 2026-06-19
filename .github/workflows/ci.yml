@@ -1,0 +1,96 @@
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  # Weekly smoke test against the latest experimaestro + datamaestro. The job
+  # no-ops when neither upstream tip has moved since the last successful run
+  # (see the cache step below).
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve experimaestro + datamaestro master HEADs
+        id: rev
+        run: |
+          xpm=$(git ls-remote https://github.com/experimaestro/experimaestro-python.git refs/heads/master | cut -f1)
+          dm=$(git ls-remote https://github.com/experimaestro/datamaestro.git refs/heads/master | cut -f1)
+          echo "xpm=$xpm" >> "$GITHUB_OUTPUT"
+          echo "dm=$dm" >> "$GITHUB_OUTPUT"
+          echo "experimaestro=$xpm datamaestro=$dm"
+
+      # Cache key is the pair of upstream tips: a hit means this exact
+      # combination already passed. Split restore/save so we only record a
+      # combination as tested when the run actually succeeds.
+      - name: Has this (experimaestro, datamaestro) pair been tested?
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .tested
+          key: tested-${{ steps.rev.outputs.xpm }}-${{ steps.rev.outputs.dm }}
+
+      - name: Decide whether to run
+        id: decide
+        run: |
+          if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Both upstream tips unchanged since last successful run; skipping."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.decide.outputs.run == 'true'
+
+      - name: Install uv
+        if: steps.decide.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        if: steps.decide.outputs.run == 'true'
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        if: steps.decide.outputs.run == 'true'
+        run: uv sync
+
+      # Test against the bleeding edge of both projects. XPM_NO_WEBUI skips the
+      # (slow, irrelevant) React frontend build — the smoke test never opens the
+      # web UI. datamaestro has no frontend to build.
+      - name: Install experimaestro + datamaestro from master
+        if: steps.decide.outputs.run == 'true'
+        env:
+          XPM_NO_WEBUI: "1"
+        run: |
+          uv pip install --reinstall-package experimaestro --reinstall-package datamaestro \
+            "experimaestro[carbon] @ git+https://github.com/experimaestro/experimaestro-python@${{ steps.rev.outputs.xpm }}" \
+            "datamaestro @ git+https://github.com/experimaestro/datamaestro@${{ steps.rev.outputs.dm }}"
+
+      # --no-sync is essential: a plain `uv run` re-syncs the env to the
+      # lockfile and would uninstall the git-master experimaestro/datamaestro
+      # installed above, silently testing the released version instead.
+      - name: Run the demo smoke test (fast, fake data)
+        if: steps.decide.outputs.run == 'true'
+        run: uv run --no-sync pytest -q
+
+      # Record this pair as tested, but only if the run passed, so a broken
+      # upstream is retried until fixed instead of being marked done.
+      - name: Mark pair as tested
+        if: success() && steps.decide.outputs.run == 'true'
+        run: echo "${{ steps.rev.outputs.xpm }} ${{ steps.rev.outputs.dm }}" > .tested
+      - name: Save cache
+        if: success() && steps.decide.outputs.run == 'true' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .tested
+          key: tested-${{ steps.rev.outputs.xpm }}-${{ steps.rev.outputs.dm }}

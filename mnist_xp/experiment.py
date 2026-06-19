@@ -93,7 +93,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
 
                 # Submit the task
                 loader = learn_task.submit(launcher=gpulauncher)
-                # Add tensorboard logs to the service
+                # Add tensorboard logs to the service, so that they are available in the UI as soon as the task starts writing them
                 if tb:
                     tb.add(learn_task, learn_task.run_path)
 

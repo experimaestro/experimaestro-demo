@@ -1,0 +1,31 @@
+id: MNIST_train_ci
+title: "MNIST training (CI smoke test)"
+description: "Fast CI smoke test: single tiny model, 1 epoch, fake data"
+
+# what experiment file to run (mnist_xp lives one level up, in the demo root)
+module: mnist_xp.experiment
+pythonpath: [..]
+
+# Replace the MNIST download with a tiny fake dataset (see fake_mnist.py).
+# Resolved relative to this yaml file's directory by run-experiment.
+pre_experiment: fake_mnist.py
+
+# NB: dirty_git is intentionally left at its default (WARN). Specifying it from
+# YAML is fragile: the config loader (omegaconf) coerces the str-enum by member
+# NAME while pydantic validation coerces by value, so no single spelling works
+# across versions. WARN just logs on a dirty tree, which is fine for CI.
+
+# The localhost launcher (tests/xpm-config/launchers.py, via --xpm-config-dir)
+# resolves any spec to a local DirectLauncher, so this value is only a label.
+launcher: "duration=10m & cpu(cores=1)"
+
+# Smallest possible grid: a single tiny model
+hidden_dim: [2]
+n_layers: [1]
+kernel_size: [1]
+
+# Training parameters (kept minimal for speed)
+epochs: 1
+lr: 1e-3
+batch_size: 64
+n_val: 100
