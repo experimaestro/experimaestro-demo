@@ -106,4 +106,26 @@ def run(helper: ExperimentHelper, cfg: Configuration):
 
     # Results are written to <run-dir>/objects.jsonl as they finish; read
     # them back later with `analyze.py` (uses load_xp_info / tags).
-    logging.info("Run `python -m mnist_xp.analyze` to inspect the results.")
+    if helper.xp.workspace.run_mode == RunMode.NORMAL:
+        from experimaestro import load_xp_info, tags
+        import pandas as pd
+
+        logging.info("Performing analysis...")
+        info = load_xp_info(helper.xp.workdir)
+
+        rows = []
+        for evaluation in info.jobs.values():
+            results_path = getattr(evaluation, "results_path", None)
+            if results_path is None or not results_path.exists():
+                continue
+            df = pd.read_csv(results_path)
+            for key, value in tags(evaluation).items():
+                df[key] = value
+            rows.append(df)
+
+        if not rows:
+            logging.warning("No Evaluate results found in this run.")
+        else:
+            print(pd.concat(rows).to_string(index=False))
+    else:
+        logging.info("Run `python -m mnist_xp.analyze` to inspect the results.")

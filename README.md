@@ -20,7 +20,10 @@ experimaestro. And you will be able to launch and monitor your own experiments. 
 
 <!-- doc:start -->
 
-## Installation
+# Setup 
+Follow these steps to ensure a working environment:
+
+## I - Installation
 
 - Clone this repository.
 
@@ -28,15 +31,15 @@ experimaestro. And you will be able to launch and monitor your own experiments. 
 git clone https://github.com/experimaestro/experimaestro-demo.git && cd experimaestro-demo
 ```
 
-### Setting up workspaces
+## II - Setting up workspaces
 
-Experimaestro automatically creates folders for all the run tasks. We still have to specify _where_ those folders will be created !
+Experimaestro automatically creates folders for all jobs. We still have to specify _where_ those folders will be created !
 
-There are two solutions:
+Two options:
 
-#### Define a default workspace
+### 1. Define a default workspace (recommended)
 
-Workspace settings are stored in `$HOME/.config/experimaestro/settings.yaml` (see documentation at https://experimaestro-python.readthedocs.io/en/latest/settings/ ).
+Workspace settings are stored in `$HOME/.config/experimaestro/settings.yaml` (see [documentation](https://experimaestro-python.readthedocs.io/en/latest/settings.html)).
 
 This repository contains a [default `settings.yaml`](https://github.com/experimaestro/experimaestro-demo/blob/main/xpm_settings.yaml) for quick testing. It uses **`triggers:`** so that running the `MNIST_train` experiment automatically picks the right workspace — no `--workspace` / `--workdir` flag needed:
 
@@ -54,7 +57,7 @@ workspaces:
 FILE="$HOME/.config/experimaestro/settings.yaml"; if [ ! -f $FILE ] ; then cat ./xpm_settings.yaml > $FILE ; else echo "$FILE already exists !"; fi
 ```
 
-#### Or specify workspace inline
+### 2. Specify workspace inline
 
 If there is no `settings.yaml`, you can still specify where you want your experiments to run with:
 
@@ -63,8 +66,12 @@ mkdir $HOME/experiments
 uv run experimaestro run-experiment --workdir $HOME/experiments ...
 ```
 
-### Generating a launcher file (single host)
+## III - Launchers 
 
+[Launchers](https://experimaestro-python.readthedocs.io/en/latest/launchers), specify how a task should be launched. There exist two types of launchers at the moment, direct launcher (starting a new process) or through slurm. 
+The `launchers.py` file is there to tell experimaestro how to launch your tasks. Without it, it will just launch everything in parallel (subprocesses): This is actually fine for this lightweight experiment, so this section is optional.
+
+### 1. Generating a launchers file (single host)
 If you run on your laptop / a single machine, experimaestro can auto-detect your hardware (CPU, CUDA GPUs, Apple Silicon MPS) and generate a `launchers.py` for you:
 
 ```bash
@@ -75,7 +82,9 @@ It writes `~/.config/experimaestro/launchers.py` with a memory-based token syste
 
 For SLURM clusters, the equivalent is `experimaestro launchers slurm generate` (interactive TUI). See the [launchers documentation](https://experimaestro-python.readthedocs.io/en/latest/launchers/) for advanced setups.
 
-## The experiment structure
+# The experiment structure
+
+Lets now have a look at how an experimaestro project can be structured, you can also choose to begin by running the experiment by jumping directly to [running the experiment](#running-the-experiment), and come back later for details.
 
 We will now have a closer look at the key files of this demo repository. In short, in the `mnist_xp` folder we have
 
@@ -340,22 +349,44 @@ We will launch one job for each possible combination of `hidden_dim`,`n_layers` 
 
 ## Running the Experiment
 
-Run the basic experiment with these three steps:
+Once your workspace and launcher are configured (see [Installation](#installation)). You can run the experiment !
 
-1.  **Configure your workspace and launcher** (see [Installation](#installation)).
-2.  **Run the experiment:**
-    ```bash
-    uv run experimaestro run-experiment mnist_xp/params.yaml
-    ```
+1. **Dry-Run**
+
+Before actually running the tasks, you can first launch a **dry-run** to verify what will be launched: experimaestro will list all tasks in the experiment.
+
+```bash
+uv run experimaestro run-experiment mnist_xp/params.yaml --run-mode dry_run 
+```
+
+the dry-run mode notably features:
+- Colors for `not done` / `done` / `failed` tasks.
+- Preview of Launcher that will be used (e.g `DirectLauncher` or `Slurm(cuda=32G, cpu...)`)
+2. **Launch Tasks**
+
+If you are happy with the output of the dry-run, you can now actually launch them !
+
+```bash
+uv run experimaestro run-experiment mnist_xp/params.yaml --run-mode dry_run 
+```
+
+Now experimaestro will:
+- Lock the experiment MNIST_train so that you cannot relaunch it while this one is running.
+- Run `experiment.py` with the configuration values from `params.yaml`
+- For each Task submitted in the experiment:
+    -  A unique hash ID is created depending on the parameters given to the task. (This ensures that you don't run the Task with the same params twice.)
+    - A folder is created in the `workspace/jobs/task-class/task-id`, it will be the working directory for the Task in which you can find the logs and the outputs.
+
+
 3.  **Monitor with the TUI:**
-    ```bash
-    uv run experimaestro experiments monitor --console
-    ```
 
-Experimaestro will:
-- Lock the experiment `MNIST_train` to prevent concurrent runs.
-- Execute `mnist_xp/experiment.py` using values from `params.yaml`.
-- Create a unique hash ID and workspace folder for each task based on its parameters.
+Experimaestro also features a tool for monitoring all your tasks and experiments:
+
+You can run a TUI-based monitor in the terminal with
+```bash
+uv run experimaestro experiments monitor --console
+```
+
 
 ---
 
