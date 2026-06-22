@@ -81,6 +81,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 learn_task = (
                     Learn.C(
                         # Defines the data and model used for training
+                        model=model,
                         data=ds_mnist.train,
                         # Training params are not tagged
                         epochs=cfg.epochs,
@@ -88,7 +89,6 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                         lr=cfg.lr,
                         batch_size=cfg.batch_size,
                     )
-                    @ model
                 )
 
                 # Submit the task
