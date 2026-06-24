@@ -1,7 +1,6 @@
 """Author : Victor MORAND"""
 
 import logging
-from shutil import rmtree
 from datamaestro import prepare_dataset
 from experimaestro.experiments import ExperimentHelper, configuration
 from experimaestro import RunMode
@@ -9,7 +8,9 @@ from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
 from experimaestro.experiments.grid import GridSearch, generate_grid
 
-from mnist_xp.tensorboard_service import TensorboardService
+# Monitoring is provided by the xpm-mlboard plugin (see mnist_xp/experiment.py
+# for details); it also writes per-run tag sidecars for Weights & Biases export.
+from xpm_mlboard import TensorboardService
 from mnist_xp.learn import CNN, Learn, Evaluate
 from mnist_xp.data import MNISTDataset
 from .actions import ExportBestModel, EvaluatedModel
@@ -113,20 +114,14 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     # This downloads the dataset if needed
     ds_mnist = prepare_dataset(MNISTDataset)
 
-    # Add tensorboard service if in NORMAL run mode
+    # Add the monitoring service if in NORMAL run mode. add_service() cleans and
+    # (re)creates the runs/ directory; each tb.add() below symlinks a task's run
+    # into it and writes its tag sidecar.
     if helper.xp.workspace.run_mode == RunMode.NORMAL:
         # DRY RUN is used for testing the experiment code,
         # without actually launching tasks or writing results. Skip services in that case.
         tb = TensorboardService(helper.xp.resultspath / "runs")
         helper.xp.add_service(tb)
-
-        # This path will contain all the tensorboard data
-        run_path = (
-            helper.xp.resultspath / "runs"
-        )  # using pathlib.Path for cross-platform compatibility
-        if run_path.is_dir():
-            rmtree(run_path)
-        run_path.mkdir(exist_ok=True, parents=True)
     else:
         tb = None  # no tensorboard in dry run
 

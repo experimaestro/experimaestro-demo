@@ -1,14 +1,17 @@
 """Author : Victor MORAND"""
 
 import logging
-from shutil import rmtree
 from datamaestro import prepare_dataset
 from experimaestro.experiments import ExperimentHelper, configuration
 from experimaestro import RunMode, tag
 from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
 
-from mnist_xp.tensorboard_service import TensorboardService
+# Monitoring is provided by the xpm-mlboard plugin. Its TensorboardService
+# aggregates each task's run directory and, in addition, records the task's
+# tags in a ``<tags>.tags.json`` sidecar so the runs can later be exported to
+# Weights & Biases (see ``xpm_mlboard.exporters.wandb``).
+from xpm_mlboard import TensorboardService
 from .learn import CNN, Learn, Evaluate
 from .data import MNISTDataset
 
@@ -49,20 +52,14 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     # This downloads the dataset if needed
     ds_mnist = prepare_dataset(MNISTDataset)
 
-    # Add tensorboard service
+    # Add the monitoring service. add_service() calls set_experiment(), which
+    # cleans and (re)creates the runs/ directory; each tb.add() below then
+    # symlinks a task's run into it and writes its tag sidecar.
     if helper.xp.workspace.run_mode != RunMode.DRY_RUN:
         # DRY RUN is used for testing the experiment code,
         # without actually launching tasks or writing results. Skip services in that case.
         tb = TensorboardService(helper.xp.resultspath / "runs")
         helper.xp.add_service(tb)
-
-        # This path will contain all the tensorboard data
-        run_path = (
-            helper.xp.resultspath / "runs"
-        )  # using pathlib.Path for cross-platform compatibility
-        if run_path.is_dir():
-            rmtree(run_path)
-        run_path.mkdir(exist_ok=True, parents=True)
     else:
         tb = None  # no tensorboard in dry run
 
@@ -126,6 +123,6 @@ def run(helper: ExperimentHelper, cfg: Configuration):
         if not rows:
             logging.warning("No Evaluate results found in this run.")
         else:
-            print(pd.concat(rows).to_string(index=False))
+            print(pd.concat(rows).to_string(index=False))  # noqa: T201
     else:
         logging.info("Run `python -m mnist_xp.analyze` to inspect the results.")
