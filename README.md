@@ -54,7 +54,7 @@ workspaces:
 - **💡 Tip:** This command will write the default config above in your `settings.yaml` if it doesn't already exist.
 
 ```bash
-FILE="$HOME/.config/experimaestro/settings.yaml"; if [ ! -f $FILE ] ; then cat ./xpm_settings.yaml > $FILE ; else echo "$FILE already exists !"; fi
+chmod +x install_settings.sh&& ./install_settings.sh 
 ```
 
 ### 2. Specify workspace inline
