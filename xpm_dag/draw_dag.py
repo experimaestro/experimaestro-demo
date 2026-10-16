@@ -1,28 +1,31 @@
-"""Draw the dependency DAG of a finished MNIST_train_advanced run as a tree, plot, or web page.
+"""Draw the dependency DAG of an Experimaestro experiment run as a tree, plot, or web page.
 
 Run with::
 
     # Interactive DAG web visualization in browser:
-    uv run python -m mnist_xp_advanced.draw_dag --web
+    uv run python -m xpm_dag --web
 
-    # Export standalone interactive HTML report:
-    uv run python -m mnist_xp_advanced.draw_dag --html dag.html
+    # Export standalone interactive HTML report (auto-detected, zero-server):
+    uv run python -m xpm_dag --save-as dag.html
 
     # Export standardized JSON graph:
-    uv run python -m mnist_xp_advanced.draw_dag --json
+    uv run python -m xpm_dag --save-as dag.json
 
     # Text tree terminal output:
-    uv run python -m mnist_xp_advanced.draw_dag --no-plot
+    uv run python -m xpm_dag --no-plot
 
     # Interactive matplotlib plot:
-    uv run python -m mnist_xp_advanced.draw_dag
+    uv run python -m xpm_dag
+
+    # Save plot directly to image without GUI window:
+    uv run python -m xpm_dag --save-as dag.png
 
     # List all hyperparameter configurations:
-    uv run python -m mnist_xp_advanced.draw_dag --list-configs
+    uv run python -m xpm_dag --list-configs
 
     # Inspect a single configuration:
-    uv run python -m mnist_xp_advanced.draw_dag --single-config -c 0
-    uv run python -m mnist_xp_advanced.draw_dag --filter "lr=0.001,kernel_size=3"
+    uv run python -m xpm_dag --single-config -c 0
+    uv run python -m xpm_dag --filter "lr=0.001,kernel_size=3"
 
 This module provides the main CLI entrypoint and coordinates terminal ASCII,
 matplotlib, and interactive web representations of the experiment DAG.
@@ -39,7 +42,7 @@ import networkx as nx
 from experimaestro import tags
 
 # Re-export core DAG utilities and models for display styles & test compatibility
-from mnist_xp_advanced.xpm_dag import (
+from xpm_dag.xpm_dag import (
     BOX_H,
     BOX_W,
     MARGIN_X,
@@ -59,7 +62,7 @@ from mnist_xp_advanced.xpm_dag import (
     resolve_run_dir,
     resolve_target_config,
 )
-from mnist_xp_advanced.xpm_web_dag import (
+from xpm_dag.xpm_web_dag import (
     generate_dag_html,
     serve_dag_web,
 )
@@ -394,12 +397,6 @@ def main() -> None:
         help="Skip the matplotlib interactive plot and only output the text tree.",
     )
     parser.add_argument(
-        "--save-plot",
-        type=Path,
-        default=None,
-        help="Path where the DAG plot figure should be saved (e.g. dag.png).",
-    )
-    parser.add_argument(
         "--list-configs",
         action="store_true",
         help="List all unique configuration parameter sets found in the experiment and exit.",
@@ -432,7 +429,35 @@ def main() -> None:
         default="dagre",
         help="Layout algorithm for interactive web view: 'dagre' (default) or 'aligned' (stage-aligned flow).",
     )
+    parser.add_argument(
+        "--save-as",
+        type=Path,
+        default=None,
+        help="Path where the DAG output should be saved (auto-detects .html, .json, .png, etc.). "
+        "If ending in .html, generates standalone HTML without launching the server.",
+    )
     args = parser.parse_args()
+
+    save_plot_path = None
+    if args.save_as:
+        ext = args.save_as.suffix.lower()
+        if ext in (".html", ".htm"):
+            args.html = args.save_as
+            args.web = False
+        elif ext == ".json":
+            args.json = str(args.save_as)
+            args.web = False
+        elif ext in (".png", ".pdf", ".svg", ".jpg", ".jpeg"):
+            save_plot_path = args.save_as
+            args.plot = False
+            args.web = False
+        else:
+            logging.error(
+                "Unsupported file extension '%s' for --save-as. "
+                "Supported extensions: .html, .htm, .json, .png, .pdf, .svg, .jpg",
+                ext,
+            )
+            return
 
     run_info = resolve_run_dir(args.workspace, args.experiment_id, args.run_id)
     if run_info is None:
@@ -488,6 +513,7 @@ def main() -> None:
         json_str = json.dumps(dag_json, indent=2)
         if args.json:  # Target file provided
             out_path = Path(args.json)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json_str)
             print(f"Saved DAG JSON to {out_path}")  # noqa: T201
         else:
@@ -510,6 +536,7 @@ def main() -> None:
             title=f"Experimaestro DAG - {args.experiment_id}",
             default_layout=args.layout,
         )
+        args.html.parent.mkdir(parents=True, exist_ok=True)
         args.html.write_text(html_str)
         print(f"Saved interactive DAG HTML to {args.html}")  # noqa: T201
         return
@@ -548,7 +575,7 @@ def main() -> None:
         pos,
     )
 
-    if args.plot or args.save_plot:
+    if args.plot or save_plot_path:
         plot_dag(
             full_jobs,
             job_tags_dict,
@@ -556,7 +583,7 @@ def main() -> None:
             reduced_dag,
             title_suffix=title_suffix,
             show_plot=args.plot,
-            save_path=args.save_plot,
+            save_path=save_plot_path,
         )
 
 

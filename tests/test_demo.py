@@ -88,7 +88,7 @@ def _dump_job_logs(workdir: Path) -> str:
 def test_draw_dag_depths_alignment_and_deep_deps():
     """Verify that compute_dag_depths aligns same-stage tasks and pushes deeper dependencies."""
     import networkx as nx
-    from mnist_xp_advanced.draw_dag import compute_dag_depths
+    from xpm_dag.draw_dag import compute_dag_depths
 
     def make_node(name: str):
         return type(name, (), {})()
@@ -148,7 +148,7 @@ def test_draw_dag_depths_alignment_and_deep_deps():
 def test_draw_dag_filter_helpers(tmp_path):
     """Verify tag parsing, config listing, and subgraph extraction."""
     import json
-    from mnist_xp_advanced.draw_dag import (
+    from xpm_dag.draw_dag import (
         parse_filter_arg,
         get_experiment_configs,
         filter_subgraph_by_config,
@@ -206,7 +206,7 @@ def test_draw_dag_filter_helpers(tmp_path):
 def test_resolve_run_dir_error_reporting(tmp_path, caplog):
     """Verify that resolve_run_dir provides helpful error messages listing available experiments and runs."""
     import logging
-    from mnist_xp_advanced.draw_dag import resolve_run_dir
+    from xpm_dag.draw_dag import resolve_run_dir
 
     ws_dir = tmp_path / "test_ws"
     exp_dir = ws_dir / "experiments"
@@ -231,8 +231,8 @@ def test_resolve_run_dir_error_reporting(tmp_path, caplog):
 
 def test_xpm_dag_json_and_html_generation(tmp_path):
     """Verify dual-compatible JSON serialization and self-contained HTML generation."""
-    from mnist_xp_advanced.xpm_dag import build_dag_json
-    from mnist_xp_advanced.xpm_web_dag import generate_dag_html
+    from xpm_dag.xpm_dag import build_dag_json
+    from xpm_dag.xpm_web_dag import generate_dag_html
 
     class MockTask:
         pass
@@ -307,7 +307,7 @@ def test_xpm_dag_json_and_html_generation(tmp_path):
 def test_draw_dag_cli_json_and_html(tmp_path, monkeypatch):
     """Verify draw_dag main() CLI with --json, --html, and --layout flags."""
     import json
-    from mnist_xp_advanced import draw_dag
+    from xpm_dag import draw_dag
 
     class MockTask:
         pass
@@ -371,7 +371,7 @@ def test_get_experiment_configs_detection_logging(tmp_path, caplog):
     """Verify that get_experiment_configs logs detected grid search configurations at INFO level."""
     import json
     import logging
-    from mnist_xp_advanced.xpm_dag import get_experiment_configs
+    from xpm_dag.xpm_dag import get_experiment_configs
 
     run_dir = tmp_path / "test_run"
     run_dir.mkdir()
@@ -395,7 +395,7 @@ def test_get_experiment_configs_detection_logging(tmp_path, caplog):
 def test_extract_config_tags_and_cnn_display():
     """Verify extract_config_tags extracts hyperparameter tags from Config objects."""
     from mnist_xp.learn import CNN
-    from mnist_xp_advanced.xpm_dag import extract_config_tags
+    from xpm_dag.xpm_dag import extract_config_tags
 
     cnn = CNN.C(hidden_dim=32, kernel_size=3, n_layers=2)
 
@@ -417,7 +417,7 @@ def test_build_dag_json_path_display_and_cnn_tags(tmp_path):
     import json
     from experimaestro import Task
     from mnist_xp.learn import CNN
-    from mnist_xp_advanced.xpm_dag import build_dag_json
+    from xpm_dag.xpm_dag import build_dag_json
 
     class DummyTask(Task):
         pass
@@ -477,7 +477,7 @@ def test_build_dag_json_path_display_and_cnn_tags(tmp_path):
 
 def test_web_dag_renders_path_in_drawer(tmp_path):
     """Verify generated HTML drawer contains Path row and display_path."""
-    from mnist_xp_advanced.xpm_web_dag import generate_dag_html
+    from xpm_dag.xpm_web_dag import generate_dag_html
 
     dag_json = {
         "experiment_id": "exp_test",
@@ -508,6 +508,61 @@ def test_web_dag_renders_path_in_drawer(tmp_path):
     assert '<tr><td class="key">Path</td>' in html
     assert "copyText" in html
     assert "node.display_path" in html
+
+
+def test_draw_dag_cli_save_as(tmp_path, monkeypatch):
+    """Verify draw_dag --save-as auto-detects extensions and saves without launching server."""
+    from xpm_dag import draw_dag
+
+    class MockTask:
+        pass
+
+    full_jobs = {"j_root": MockTask(), "j_train": MockTask()}
+    dependencies = {"j_train": ["j_root"]}
+    job_tags_dict = {"j_train": {"lr": 0.001}}
+
+    run_dir = tmp_path / "experiments" / "MNIST_train_advanced" / "20260101_120000"
+    run_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        draw_dag,
+        "resolve_run_dir",
+        lambda ws, exp_id, run_id: ("20260101_120000", run_dir),
+    )
+    monkeypatch.setattr(
+        draw_dag,
+        "load_run_graph",
+        lambda r_dir: (full_jobs, dependencies, job_tags_dict),
+    )
+
+    server_called = []
+    monkeypatch.setattr(
+        draw_dag,
+        "serve_dag_web",
+        lambda *args, **kwargs: server_called.append(True),
+    )
+
+    # 1. Test --save-as with .html: saves HTML and does NOT launch server even if --web was passed
+    html_out = tmp_path / "subfolder" / "dag.html"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["draw_dag", "--web", "--save-as", str(html_out)],
+    )
+    draw_dag.main()
+    assert html_out.exists()
+    assert "<!DOCTYPE html>" in html_out.read_text()
+    assert len(server_called) == 0, "Server should not be launched when --save-as ends in .html"
+
+    # 2. Test --save-as with .json
+    json_out = tmp_path / "subfolder" / "dag.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["draw_dag", "--save-as", str(json_out)],
+    )
+    draw_dag.main()
+    assert json_out.exists()
+    assert "j_train" in json_out.read_text()
+
 
 
 
