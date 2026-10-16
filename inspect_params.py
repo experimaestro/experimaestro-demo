@@ -683,7 +683,6 @@ class NodeDetailPane(VerticalScroll):
             ("Role", role),
             ("Identifier", f"[bold yellow]{node.identifier}[/bold yellow] ('c')"),
             ("Fields", f"{len(node.fields)} fields"),
-            ("Referenced by", refs),
         ]
         parts: List[Any] = [self._make_table(rows)]
 
@@ -707,6 +706,7 @@ class NodeDetailPane(VerticalScroll):
                 subtitle="Press 'J' for Raw JSON",
             )
         )
+        parts.append(self._make_table([("Referenced by", refs)]))
         w.update(Group(*parts))
 
     def _render_path_card(self, w: Static, d: NodeData) -> None:
@@ -819,6 +819,10 @@ class ParamsInspectorApp(App):
     def on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
         self.query_one(NodeDetailPane).update_detail(event.node.data)
 
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        if event.node.data and event.node.data.target_object_id:
+            self.action_jump_primary()
+
     def on_input_changed(self, event: Input.Changed) -> None:
         self.query_one(ParamsTree).set_filter(event.value)
 
@@ -907,7 +911,25 @@ class ParamsInspectorApp(App):
         tid = node.data.target_object_id or node.data.object_id
         tree = self.query_one(ParamsTree)
         if tid and tid in tree.primary_nodes:
-            tree.select_node(tree.primary_nodes[tid])
+            target = tree.primary_nodes[tid]
+
+            # 1. Expand all ancestors from root down to target so it is visible
+            curr = target.parent
+            while curr is not None:
+                if not curr.is_expanded:
+                    curr.expand()
+                curr = curr.parent
+
+            # 2. Expand target itself so its parameters/fields are revealed
+            target.expand()
+            for child in target.children:
+                if child.data and child.data.kind == NodeKind.CATEGORY:
+                    child.expand()
+
+            # 3. Move cursor to target and scroll into view
+            tree.move_cursor(target)
+            tree.scroll_to_node(target)
+            self.query_one(NodeDetailPane).update_detail(target.data)
             self.notify(f"Jumped to primary definition #{tid}")
 
     def action_dismiss_or_quit(self) -> None:
@@ -993,6 +1015,16 @@ def fetch_remote_params(ws: Any, target: str) -> Path:
             f"Please specify a job ID or path for remote workspace '{ws.id}'."
         )
 
+    # Strip remote workspace base path or extract job subpath
+    ws_raw = str(getattr(ws, "_raw_path", "")).strip("/")
+    if ws_raw and clean_target.startswith(ws_raw):
+        clean_target = clean_target[len(ws_raw) :].strip("/")
+
+    if "/jobs/" in clean_target:
+        clean_target = clean_target.split("/jobs/", 1)[1].strip("/")
+    elif clean_target.startswith("jobs/"):
+        clean_target = clean_target[len("jobs/") :].strip("/")
+
     pattern = (
         f"jobs/{clean_target}*/params.json"
         if "/" in clean_target
@@ -1054,42 +1086,8 @@ def fetch_remote_params(ws: Any, target: str) -> Path:
     return local_params
 
 
-def find_params_file(
-    target: Optional[str] = None, workspace: Optional[str] = None
-) -> Path:
-    raw = target or "."
-    p = Path(raw)
-
-    # 1. If absolute path is given, resolve directly
-    if p.is_absolute():
-        if p.is_file():
-            return p
-        if p.is_dir():
-            cand = p / "params.json"
-            if cand.is_file():
-                return cand
-            m = list(p.glob("**/params.json"))
-            if m:
-                return m[0]
-        raise FileNotFoundError(f"params.json not found at absolute path: {raw}")
-
-    # 2. If it exists locally as a relative file or directory containing params.json (and no explicit workspace)
-    if workspace is None:
-        if p.is_file():
-            return p.resolve()
-        if p.is_dir():
-            cand = p / "params.json"
-            if cand.is_file():
-                return cand.resolve()
-
-    # 3. Otherwise fall back to workspace job discovery
-    ws_or_path = resolve_workspace(workspace)
-    from experimaestro.settings import WorkspaceSettings
-
-    if isinstance(ws_or_path, WorkspaceSettings) and ws_or_path.is_remote:
-        return fetch_remote_params(ws_or_path, raw)
-
-    ws_dir = ws_or_path
+def _find_in_local_workspace(ws_dir: Path, raw: str) -> Path:
+    """Find a params.json file within a local workspace directory."""
     clean_target = (
         raw.strip("/")
         .removesuffix("/params.json")
@@ -1100,6 +1098,16 @@ def find_params_file(
         raise FileNotFoundError(
             "Please specify a job ID or path. params.json not found in current directory."
         )
+
+    # Strip ws_dir if raw was an absolute path matching or containing the workspace directory
+    ws_str = str(ws_dir).strip("/")
+    if ws_str and clean_target.startswith(ws_str):
+        clean_target = clean_target[len(ws_str) :].strip("/")
+
+    if "/jobs/" in clean_target:
+        clean_target = clean_target.split("/jobs/", 1)[1].strip("/")
+    elif clean_target.startswith("jobs/"):
+        clean_target = clean_target[len("jobs/") :].strip("/")
 
     pattern = (
         f"jobs/{clean_target}*/params.json"
@@ -1121,6 +1129,61 @@ def find_params_file(
         )
 
     return matches[0].resolve()
+
+
+def find_params_file(
+    target: Optional[str] = None, workspace: Optional[str] = None
+) -> Path:
+    raw = target or "."
+    p = Path(raw)
+
+    # 1. If explicit workspace is specified, check it first (remote overrides local path)
+    if workspace is not None:
+        ws_or_path = resolve_workspace(workspace)
+        from experimaestro.settings import WorkspaceSettings
+
+        if isinstance(ws_or_path, WorkspaceSettings) and ws_or_path.is_remote:
+            return fetch_remote_params(ws_or_path, raw)
+
+        # Explicit local workspace: if target is an existing local absolute path, return it directly
+        if p.is_absolute():
+            if p.is_file():
+                return p
+            if p.is_dir():
+                cand = p / "params.json"
+                if cand.is_file():
+                    return cand
+
+        return _find_in_local_workspace(ws_or_path, raw)
+
+    # 2. No explicit workspace: check if absolute or relative path exists locally
+    if p.is_absolute():
+        if p.is_file():
+            return p
+        if p.is_dir():
+            cand = p / "params.json"
+            if cand.is_file():
+                return cand
+            m = list(p.glob("**/params.json"))
+            if m:
+                return m[0]
+        raise FileNotFoundError(f"params.json not found at absolute path: {raw}")
+
+    if p.is_file():
+        return p.resolve()
+    if p.is_dir():
+        cand = p / "params.json"
+        if cand.is_file():
+            return cand.resolve()
+
+    # 3. Otherwise fall back to default workspace discovery
+    ws_or_path = resolve_workspace()
+    from experimaestro.settings import WorkspaceSettings
+
+    if isinstance(ws_or_path, WorkspaceSettings) and ws_or_path.is_remote:
+        return fetch_remote_params(ws_or_path, raw)
+
+    return _find_in_local_workspace(ws_or_path, raw)
 
 
 def main() -> None:

@@ -215,6 +215,70 @@ async def test_app_pilot_smoke_test():
         assert "hidden" in search_box.classes
 
 
+@pytest.mark.anyio
+async def test_app_pilot_jump_unfolds_config():
+    """Verify that jumping to primary definition with 'j' unfolds folded ancestors and config."""
+    app = ParamsInspectorApp(EVALUATE_PARAMS_PATH)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        tree = app.query_one(ParamsTree)
+        app.action_expand_all()
+        await pilot.pause()
+
+        # Find shared node pointing to CNN
+        shared_node = None
+
+        def find_shared(n):
+            nonlocal shared_node
+            if n.data and n.data.target_object_id:
+                shared_node = n
+                return
+            for c in n.children:
+                find_shared(c)
+
+        find_shared(tree.root)
+        assert shared_node is not None
+
+        tid = shared_node.data.target_object_id
+        primary = tree.primary_nodes[tid]
+
+        # Explicitly collapse primary and its parent category
+        primary.collapse()
+        primary.parent.collapse()
+        await pilot.pause()
+        assert primary.is_expanded is False
+        assert primary.parent.is_expanded is False
+
+        # Move cursor to shared node
+        tree.move_cursor(shared_node)
+        await pilot.pause()
+        assert tree.cursor_node == shared_node
+
+        # Press 'j' to jump
+        await pilot.press("j")
+        await pilot.pause()
+
+        # Verify cursor jumped to primary, and both parent and primary are unfolded
+        assert tree.cursor_node == primary
+        assert primary.parent.is_expanded is True
+        assert primary.is_expanded is True
+
+        # Re-collapse and test that Enter on a shared node also jumps and unfolds
+        primary.collapse()
+        primary.parent.collapse()
+        await pilot.pause()
+        assert primary.is_expanded is False
+
+        tree.move_cursor(shared_node)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert tree.cursor_node == primary
+        assert primary.parent.is_expanded is True
+        assert primary.is_expanded is True
+
+
 def test_find_params_file_absolute_path():
     """Verify that absolute paths resolve directly to file or directory."""
     # Absolute path to params.json
@@ -456,3 +520,90 @@ def test_find_params_file_remote_dispatch(tmp_path, monkeypatch):
 
     result = find_params_file("my_remote_job", workspace="mock-remote-ws")
     assert result == expected_path
+
+
+def test_find_params_file_remote_workspace_overrides_absolute_path(
+    tmp_path, monkeypatch
+):
+    """Verify that an absolute path is dispatched to remote workspace rather than local resolution."""
+    ws = make_mock_remote_workspace()
+    expected_path = tmp_path / "params.json"
+    remote_abs_path = (
+        f"{ws._raw_path}/jobs/my_task/b0ef27e326897e6d874df9a028ba1cbf09177958"
+    )
+
+    called_with = []
+    monkeypatch.setattr("inspect_params.resolve_workspace", lambda w: ws)
+    monkeypatch.setattr(
+        "inspect_params.fetch_remote_params",
+        lambda workspace, target: (
+            called_with.append((workspace, target)) or expected_path
+        ),
+    )
+
+    result = find_params_file(remote_abs_path, workspace="mock-remote-ws")
+    assert result == expected_path
+    assert called_with == [(ws, remote_abs_path)]
+
+
+def test_fetch_remote_params_with_full_remote_absolute_path(tmp_path, monkeypatch):
+    """Verify fetch_remote_params correctly strips remote workspace prefix and /jobs/."""
+    ws = make_mock_remote_workspace()
+    target_job = "b0ef27e3"
+    full_remote_path = (
+        f"{ws._raw_path}/jobs/xpmir.evaluation.evaluate/{target_job}12345/params.json"
+    )
+
+    executed_cmds = []
+
+    def mock_subprocess_run(cmd, capture_output, text):
+        executed_cmds.append(cmd)
+
+        class Result:
+            returncode = 0
+            stdout = f"{full_remote_path}\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    synced_job_dir = (
+        tmp_path
+        / "synced"
+        / "jobs"
+        / "xpmir.evaluation.evaluate"
+        / f"{target_job}12345"
+    )
+    synced_job_dir.mkdir(parents=True)
+    fake_params = synced_job_dir / "params.json"
+    fake_params.write_text("{}", encoding="utf-8")
+
+    class MockClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def connect(self, timeout=30.0):
+            pass
+
+        def disconnect(self):
+            pass
+
+        def sync_path(self, rel_path, include=None):
+            assert rel_path == f"jobs/xpmir.evaluation.evaluate/{target_job}12345"
+            return synced_job_dir
+
+    monkeypatch.setattr(
+        "experimaestro.scheduler.remote.client.SSHStateProviderClient", MockClient
+    )
+
+    result = fetch_remote_params(ws, full_remote_path)
+    assert result == fake_params
+
+    # Check that SSH command queried the pattern properly without duplicated prefix
+    assert len(executed_cmds) == 1
+    remote_py_cmd = executed_cmds[0][-1]
+    assert (
+        f"{ws._raw_path}/jobs/xpmir.evaluation.evaluate/{target_job}12345*/params.json"
+        in remote_py_cmd
+    )
