@@ -166,6 +166,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       color: var(--primary);
     }
 
+    .layout-toggle-group {
+      display: inline-flex;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .layout-toggle-group .btn {
+      border: none;
+      background: transparent;
+      padding: 3px 8px;
+      font-size: 11px;
+      border-radius: 4px;
+      box-shadow: none;
+      color: #64748b;
+    }
+    .layout-toggle-group .btn.active {
+      background: #ffffff;
+      color: var(--primary);
+      font-weight: 700;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    }
+
     .toggle-label {
       display: inline-flex;
       align-items: center;
@@ -199,7 +223,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     /* Edge Styles */
     .edge-path {
       fill: none;
-      stroke: #64748b;
+      stroke: #0f172a;
       stroke-width: 1.5px;
       transition: stroke 0.2s, stroke-width 0.2s, opacity 0.2s;
     }
@@ -214,22 +238,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       opacity: 1.0 !important;
     }
     .edge-path.dimmed {
-      opacity: 0.15;
+      opacity: 0.12;
     }
 
     /* Node Card Styles */
     .node-card {
       width: 240px;
+      height: 100%;
       background: #ffffff;
       border-radius: 8px;
       border: 1.5px solid var(--border);
       box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-      padding: 8px 10px;
+      padding: 6px 9px;
       cursor: pointer;
       transition: all 0.2s ease;
       font-size: 12px;
       position: relative;
       user-select: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 3px;
+      overflow: hidden;
     }
     .node-card:hover {
       box-shadow: 0 4px 12px rgba(0,0,0,0.1);
@@ -250,57 +280,114 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       opacity: 1 !important;
     }
     .node-card.dimmed {
-      opacity: 0.15;
+      opacity: 0.12;
     }
-
-    /* Status Accent Colors */
-    .node-card.status-done { border-color: var(--status-done); }
-    .node-card.status-running { border-color: var(--status-running); }
-    .node-card.status-error { border-color: var(--status-error); }
-    .node-card.status-ready { border-color: var(--status-ready); }
-    .node-card.status-waiting { border-color: var(--status-waiting); }
-    .node-card.status-config { border-color: var(--status-config); }
-    .node-card.status-action { border-color: var(--status-action); }
 
     .node-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 6px;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
     .node-name {
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12.5px;
       color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       flex: 1;
+      min-width: 0;
     }
     .node-status-badge {
       font-size: 9.5px;
       font-weight: 700;
       text-transform: uppercase;
-      padding: 2px 5px;
+      padding: 1.5px 5px;
       border-radius: 4px;
       letter-spacing: 0.03em;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
-    .status-done .node-status-badge { background: var(--status-done-bg); color: var(--status-done); }
-    .status-running .node-status-badge { background: var(--status-running-bg); color: var(--status-running); }
-    .status-error .node-status-badge { background: var(--status-error-bg); color: var(--status-error); }
-    .status-ready .node-status-badge { background: var(--status-ready-bg); color: var(--status-ready); }
-    .status-waiting .node-status-badge { background: var(--status-waiting-bg); color: var(--status-waiting); }
-    .status-config .node-status-badge { background: var(--status-config-bg); color: var(--status-config); }
-    .status-action .node-status-badge { background: var(--status-action-bg); color: var(--status-action); }
+
+    /* 1. Configs in Neutral Gray */
+    .node-card.type-config {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+      border-left: 4px solid #94a3b8;
+    }
+    .node-card.type-config .node-name {
+      color: #334155;
+    }
+    .node-card.type-config .node-status-badge {
+      background: #e2e8f0;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+
+    /* 2. Tasks & Actions by Status */
+    .node-card.type-task.status-done, .node-card.type-action.status-done {
+      background: #f0fdf4;
+      border-color: #86efac;
+      border-left: 4px solid #16a34a;
+    }
+    .node-card.type-task.status-done .node-status-badge, .node-card.type-action.status-done .node-status-badge {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+
+    .node-card.type-task.status-running, .node-card.type-action.status-running {
+      background: #fffbeb;
+      border-color: #fcd34d;
+      border-left: 4px solid #f59e0b;
+    }
+    .node-card.type-task.status-running .node-status-badge, .node-card.type-action.status-running .node-status-badge {
+      background: #fef3c7;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+
+    .node-card.type-task.status-error, .node-card.type-action.status-error {
+      background: #fef2f2;
+      border-color: #fca5a5;
+      border-left: 4px solid #dc2626;
+    }
+    .node-card.type-task.status-error .node-status-badge, .node-card.type-action.status-error .node-status-badge {
+      background: #fee2e2;
+      color: #b91c1c;
+      border: 1px solid #fca5a5;
+    }
+
+    .node-card.type-task.status-waiting, .node-card.type-action.status-waiting {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+      border-left: 4px solid #64748b;
+    }
+    .node-card.type-task.status-waiting .node-status-badge, .node-card.type-action.status-waiting .node-status-badge {
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+
+    .node-card.type-task.status-ready, .node-card.type-action.status-ready {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      border-left: 4px solid #2563eb;
+    }
+    .node-card.type-task.status-ready .node-status-badge, .node-card.type-action.status-ready .node-status-badge {
+      background: #dbeafe;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
 
     .node-subline {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       font-size: 11px;
       color: var(--text-muted);
-      margin-bottom: 5px;
+      margin-bottom: 3px;
     }
     .node-hash {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -313,29 +400,32 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .node-hash:hover {
       color: var(--primary);
     }
-    .node-type {
-      text-transform: uppercase;
-      font-size: 9px;
-      font-weight: 600;
-      color: #94a3b8;
-    }
 
     .node-tags {
       display: flex;
       flex-wrap: wrap;
       gap: 3px;
+      overflow: hidden;
+      margin-top: auto;
     }
     .tag-pill {
       font-size: 10px;
       padding: 1px 5px;
       border-radius: 3px;
-      background: #f1f5f9;
-      color: #334155;
+      background: #e2e8f0;
+      color: #1e293b;
       font-weight: 500;
       max-width: 100%;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .tag-pill.tag-more {
+      background: #cbd5e1;
+      color: #0f172a;
+      font-weight: 700;
+      cursor: help;
     }
 
     /* Side Inspector Drawer */
@@ -481,14 +571,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <div class="controls-center">
-      <select id="config-select" class="config-select" title="Filter by configuration trial">
+      <select id="config-select" class="config-select" title="Filter by configuration">
         <option value="all">All Configurations</option>
       </select>
     </div>
 
     <div class="controls-right">
-      <label class="toggle-label" title="Show only Tasks and Actions">
-        <input type="checkbox" id="tasks-only-toggle"> Tasks Only
+      <div class="layout-toggle-group">
+        <button id="btn-layout-dagre" class="btn active" title="Dagre Hierarchical Layout">Dagre</button>
+        <button id="btn-layout-aligned" class="btn" title="Aligned Grid Stages Layout">Aligned</button>
+      </div>
+      <label class="toggle-label" title="Show Configurations and Parameters">
+        <input type="checkbox" id="show-configs-toggle"> Show Configs
       </label>
       <button id="btn-orientation" class="btn" title="Toggle Layout Direction (Left-to-Right / Top-to-Bottom)">
         <span id="orientation-label">LR ➔</span>
@@ -504,7 +598,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <svg id="dag-svg">
       <defs>
         <marker id="arrow-default" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#64748b"/>
+          <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#0f172a"/>
         </marker>
         <marker id="arrow-upstream" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#2563eb"/>
@@ -538,14 +632,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const RAW_GRAPH = __GRAPH_DATA__;
 
     // State
+    let currentLayout = "__DEFAULT_LAYOUT__"; // "dagre" or "aligned"
     let currentOrientation = "LR"; // "LR" or "TB"
-    let currentConfigIdx = "all";
-    let tasksOnly = false;
+    let currentConfigIdx = (RAW_GRAPH.configs && RAW_GRAPH.configs.length > 0) ? "0" : "all";
+    let showConfigs = false;
     let selectedNodeId = null;
 
-    // Node sizing constants for Dagre layout
+    // Node sizing constants matching flat plot aspect ratio
     const CARD_W = 240;
-    const CARD_H = 78;
+    const MIN_CARD_H = 76;
+    const LIMIT_HEIGHT = 140;
+    const GAP_X = 80;
+    const GAP_Y = 24;
+    const MARGIN = 40;
 
     // Precompute configuration options in the dropdown
     const configSelect = document.getElementById("config-select");
@@ -554,10 +653,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const opt = document.createElement("option");
         opt.value = idx.toString();
         const tagPairs = Object.entries(cfg).map(([k, v]) => `${k}=${v}`).join(", ");
-        opt.textContent = `Trial #${idx}: ${tagPairs}`;
+        opt.textContent = `Config #${idx}: ${tagPairs}`;
         configSelect.appendChild(opt);
       });
-      configSelect.options[0].textContent = `All Configurations (${RAW_GRAPH.configs.length} trials)`;
+      configSelect.options[0].textContent = `All Configurations (${RAW_GRAPH.configs.length} configs)`;
+      configSelect.value = currentConfigIdx;
     }
 
     // Set up D3 Zoom & Pan
@@ -590,12 +690,111 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       });
     }
 
+    // Compute dynamic card dimensions and tag overflow truncation
+    function computeCardDimensions(node) {
+      const tagEntries = Object.entries(node.tags || {});
+      if (tagEntries.length === 0) {
+        return { w: CARD_W, h: MIN_CARD_H, visibleTags: [], hiddenCount: 0, allTags: [] };
+      }
+
+      // Max rows allowed before exceeding LIMIT_HEIGHT (140px)
+      // Header + subline + padding ~ 56px; each tag row is ~22px
+      // 1 row -> 78px, 2 rows -> 100px, 3 rows -> 122px (all <= LIMIT_HEIGHT)
+      const MAX_TAG_ROWS = 3;
+      let rows = 1;
+      let curRowWidth = 0;
+      const visibleTags = [];
+      let hiddenCount = 0;
+
+      for (let i = 0; i < tagEntries.length; i++) {
+        const [k, v] = tagEntries[i];
+        const pillText = `${k}:${v}`;
+        const pillW = Math.max(40, pillText.length * 6.5 + 16);
+        if (curRowWidth + pillW > 218) {
+          if (rows >= MAX_TAG_ROWS) {
+            hiddenCount = tagEntries.length - i;
+            break;
+          }
+          rows++;
+          curRowWidth = pillW + 4;
+        } else {
+          curRowWidth += pillW + 4;
+        }
+        visibleTags.push([k, v]);
+      }
+
+      // If we truncated and the last row cannot fit the "+N more" pill (~52px), pop one tag
+      if (hiddenCount > 0 && curRowWidth + 52 > 218 && visibleTags.length > 1) {
+        visibleTags.pop();
+        hiddenCount++;
+      }
+
+      const h = Math.min(LIMIT_HEIGHT, Math.max(MIN_CARD_H, 56 + rows * 22));
+      return { w: CARD_W, h, visibleTags, hiddenCount, allTags: tagEntries };
+    }
+
+    // Compute Transitive Reduction on an active node subset
+    function computeTransitiveReduction(nodes, activeNodeIds) {
+      const succs = new Map();
+      nodes.forEach(n => succs.set(n.id, []));
+      const directEdges = [];
+
+      nodes.forEach(n => {
+        const q = [...(n.depends_on || [])];
+        const visited = new Set();
+        const activePreds = new Set();
+        while (q.length > 0) {
+          const curr = q.pop();
+          if (visited.has(curr)) continue;
+          visited.add(curr);
+          if (activeNodeIds.has(curr)) {
+            activePreds.add(curr);
+          } else {
+            const rawNode = RAW_GRAPH.nodes.find(rn => rn.id === curr);
+            if (rawNode && rawNode.depends_on) {
+              q.push(...rawNode.depends_on);
+            }
+          }
+        }
+        activePreds.forEach(pId => {
+          directEdges.push({ source: pId, target: n.id });
+          if (!succs.has(pId)) succs.set(pId, []);
+          succs.get(pId).push(n.id);
+        });
+      });
+
+      // Remove transitive shortcuts
+      const reducedEdges = [];
+      directEdges.forEach(e => {
+        let hasAlternative = false;
+        const q = (succs.get(e.source) || []).filter(c => c !== e.target);
+        const seen = new Set(q);
+        while (q.length > 0) {
+          const curr = q.pop();
+          if (curr === e.target) {
+            hasAlternative = true;
+            break;
+          }
+          for (const next of (succs.get(curr) || [])) {
+            if (!seen.has(next)) {
+              seen.add(next);
+              q.push(next);
+            }
+          }
+        }
+        if (!hasAlternative) {
+          reducedEdges.push(e);
+        }
+      });
+      return reducedEdges;
+    }
+
     // Filter nodes and edges based on active filters
     function getFilteredData() {
       let nodes = [...RAW_GRAPH.nodes];
       const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-      // 1. Filter by Single Config Trial
+      // 1. Filter by Single Configuration
       if (currentConfigIdx !== "all") {
         const targetConfig = RAW_GRAPH.configs[parseInt(currentConfigIdx, 10)];
         if (targetConfig) {
@@ -620,28 +819,293 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               }
             }
           }
+
+          // Include downstream Action and EvaluatedModel nodes
+          nodes.filter(n => n.type === "action" || (n.name && n.name.includes("EvaluatedModel"))).forEach(act => {
+            if ((act.depends_on || []).some(dep => selected.has(dep))) {
+              selected.add(act.id);
+            }
+          });
+
           nodes = nodes.filter(n => selected.has(n.id));
         }
       }
 
-      // 2. Filter by Tasks Only (hide static configs)
-      if (tasksOnly) {
+      // 2. Filter by Show Configs (default: hide static configs)
+      if (!showConfigs) {
         nodes = nodes.filter(n => n.type === "task" || n.type === "action");
       }
 
       const activeNodeIds = new Set(nodes.map(n => n.id));
 
-      // Build edges restricted to active nodes
-      const edges = [];
+      // Build edges: use precomputed transitive reduction if unfiltered, or compute on filtered subset
+      let edges;
+      if (currentConfigIdx === "all" && showConfigs) {
+        edges = (RAW_GRAPH.edges || []).filter(e => activeNodeIds.has(e.source) && activeNodeIds.has(e.target));
+      } else {
+        edges = computeTransitiveReduction(nodes, activeNodeIds);
+      }
+
+      return { nodes, edges };
+    }
+
+    // Grid Stages Layout Engine matching flat plot compute_dag_layout
+    function computeGridStages(nodes, edges) {
+      // 1. Build Adjacency
+      const preds = new Map();
+      const succs = new Map();
       nodes.forEach(n => {
-        (n.depends_on || []).forEach(depId => {
-          if (activeNodeIds.has(depId)) {
-            edges.push({ source: depId, target: n.id });
+        preds.set(n.id, []);
+        succs.set(n.id, []);
+      });
+      edges.forEach(e => {
+        if (preds.has(e.target)) preds.get(e.target).push(e.source);
+        if (succs.has(e.source)) succs.get(e.source).push(e.target);
+      });
+
+      // 2. Topological sort (Kahn's algorithm)
+      const inDeg = new Map();
+      nodes.forEach(n => inDeg.set(n.id, (preds.get(n.id) || []).length));
+      const q = nodes.filter(n => inDeg.get(n.id) === 0).map(n => n.id);
+      const topo = [];
+      while (q.length > 0) {
+        const u = q.shift();
+        topo.push(u);
+        for (const v of (succs.get(u) || [])) {
+          inDeg.set(v, inDeg.get(v) - 1);
+          if (inDeg.get(v) === 0) q.push(v);
+        }
+      }
+      nodes.forEach(n => {
+        if (!topo.includes(n.id)) topo.push(n.id);
+      });
+
+      // Pass 1: Base Forward Topological Leveling
+      const depths = new Map();
+      topo.forEach(nId => {
+        const pList = preds.get(nId) || [];
+        if (pList.length === 0) {
+          depths.set(nId, 0);
+        } else {
+          depths.set(nId, Math.max(...pList.map(p => depths.get(p) ?? 0)) + 1);
+        }
+      });
+
+      // Pass 2: Grid Stage Alignment for key task stages
+      const alignedTypes = ["Learn", "ParameterLoader", "Evaluate"];
+      alignedTypes.forEach(tname => {
+        const matched = nodes.filter(n => (n.name || "").split(".")[0] === tname);
+        if (matched.length > 0) {
+          const maxD = Math.max(...matched.map(n => depths.get(n.id) ?? 0));
+          matched.forEach(n => depths.set(n.id, maxD));
+        }
+      });
+
+      // Pass 3: Deep Dependency Forward Push
+      topo.forEach(nId => {
+        const curD = depths.get(nId) ?? 0;
+        for (const succ of (succs.get(nId) || [])) {
+          if ((depths.get(succ) ?? 0) <= curD) {
+            depths.set(succ, curD + 1);
           }
+        }
+      });
+
+      // Pass 4: Parent-averaging row sort
+      const uniqueDepths = Array.from(new Set(depths.values())).sort((a, b) => a - b);
+      const layout = new Map();
+      const nodesPerType = new Map();
+
+      uniqueDepths.forEach(d => {
+        const nodesAtD = nodes.filter(n => depths.get(n.id) === d);
+        const desiredRow = new Map();
+
+        nodesAtD.forEach(n => {
+          const pRows = (preds.get(n.id) || [])
+            .filter(p => layout.has(p))
+            .map(p => layout.get(p).row);
+          const tname = (n.name || "").split(".")[0];
+          const sibRows = (nodesPerType.get(tname) || [])
+            .filter(s => layout.has(s))
+            .map(s => layout.get(s).row);
+          const allRows = [...pRows, ...sibRows];
+          const avgRow = allRows.length > 0 ? allRows.reduce((a, b) => a + b, 0) / allRows.length : 0;
+          desiredRow.set(n.id, avgRow);
+        });
+
+        nodesAtD.sort((a, b) => {
+          const diff = desiredRow.get(a.id) - desiredRow.get(b.id);
+          if (Math.abs(diff) > 1e-5) return diff;
+          const nameDiff = (a.name || "").localeCompare(b.name || "");
+          if (nameDiff !== 0) return nameDiff;
+          return a.id.localeCompare(b.id);
+        });
+
+        nodesAtD.forEach((n, i) => {
+          layout.set(n.id, { col: d, row: i });
+          const tname = (n.name || "").split(".")[0];
+          if (!nodesPerType.has(tname)) nodesPerType.set(tname, []);
+          nodesPerType.get(tname).push(n.id);
         });
       });
 
-      return { nodes, edges };
+      return layout;
+    }
+
+    // Dagre Layout Engine
+    function computeDagreLayout(nodes, edges, orientation) {
+      const g = new dagre.graphlib.Graph();
+      const rankdir = orientation === "LR" ? "LR" : "TB";
+      g.setGraph({
+        rankdir: rankdir,
+        nodesep: 30,
+        ranksep: 50,
+        marginx: MARGIN,
+        marginy: MARGIN,
+      });
+      g.setDefaultEdgeLabel(() => ({}));
+
+      nodes.forEach(n => {
+        const dims = computeCardDimensions(n);
+        g.setNode(n.id, {
+          width: dims.w,
+          height: dims.h,
+          label: n.name,
+        });
+      });
+
+      edges.forEach(e => {
+        g.setEdge(e.source, e.target);
+      });
+
+      dagre.layout(g);
+
+      const nodeCoords = new Map();
+      nodes.forEach(n => {
+        const nodeInfo = g.node(n.id);
+        const dims = computeCardDimensions(n);
+        if (nodeInfo) {
+          nodeCoords.set(n.id, {
+            x: nodeInfo.x - dims.w / 2,
+            y: nodeInfo.y - dims.h / 2,
+            w: dims.w,
+            h: dims.h,
+          });
+        } else {
+          nodeCoords.set(n.id, { x: MARGIN, y: MARGIN, w: dims.w, h: dims.h });
+        }
+      });
+
+      const edgePaths = new Map();
+      edges.forEach(e => {
+        const edgeInfo = g.edge(e.source, e.target);
+        if (edgeInfo && edgeInfo.points && edgeInfo.points.length > 0) {
+          edgePaths.set(`${e.source}->${e.target}`, edgeInfo.points);
+        }
+      });
+
+      return { nodeCoords, edgePaths };
+    }
+
+    // Aligned Stages Layout Engine with dynamic heights & collinear straight edges
+    function computeAlignedLayout(nodes, edges, orientation) {
+      let gridPos;
+      if (currentConfigIdx === "all" && showConfigs && nodes.every(n => n.col !== undefined && n.row !== undefined)) {
+        gridPos = new Map();
+        nodes.forEach(n => gridPos.set(n.id, { col: n.col, row: n.row }));
+      } else {
+        gridPos = computeGridStages(nodes, edges);
+      }
+
+      const nodeDims = new Map();
+      nodes.forEach(n => nodeDims.set(n.id, computeCardDimensions(n)));
+
+      let maxCol = 0;
+      let maxRow = 0;
+      gridPos.forEach(p => {
+        if (p.col > maxCol) maxCol = p.col;
+        if (p.row > maxRow) maxRow = p.row;
+      });
+
+      const nodeCoords = new Map();
+
+      if (orientation === "LR") {
+        const rowHeights = [];
+        for (let r = 0; r <= maxRow; r++) {
+          let maxH = MIN_CARD_H;
+          nodes.forEach(n => {
+            const p = gridPos.get(n.id);
+            if (p && p.row === r) {
+              const d = nodeDims.get(n.id);
+              if (d && d.h > maxH) maxH = d.h;
+            }
+          });
+          rowHeights.push(maxH);
+        }
+
+        const rowY = [];
+        let curY = MARGIN;
+        for (let r = 0; r <= maxRow; r++) {
+          rowY.push(curY);
+          curY += rowHeights[r] + GAP_Y;
+        }
+
+        nodes.forEach(n => {
+          const p = gridPos.get(n.id) || { col: 0, row: 0 };
+          const dims = nodeDims.get(n.id) || { w: CARD_W, h: MIN_CARD_H };
+          const x = p.col * (CARD_W + GAP_X) + MARGIN;
+          const rH = rowHeights[p.row] || MIN_CARD_H;
+          const y = (rowY[p.row] || MARGIN) + (rH - dims.h) / 2;
+          nodeCoords.set(n.id, { x, y, w: dims.w, h: dims.h });
+        });
+      } else {
+        const colHeights = [];
+        for (let c = 0; c <= maxCol; c++) {
+          let maxH = MIN_CARD_H;
+          nodes.forEach(n => {
+            const p = gridPos.get(n.id);
+            if (p && p.col === c) {
+              const d = nodeDims.get(n.id);
+              if (d && d.h > maxH) maxH = d.h;
+            }
+          });
+          colHeights.push(maxH);
+        }
+
+        const colY = [];
+        let curY = MARGIN;
+        for (let c = 0; c <= maxCol; c++) {
+          colY.push(curY);
+          curY += colHeights[c] + GAP_Y;
+        }
+
+        nodes.forEach(n => {
+          const p = gridPos.get(n.id) || { col: 0, row: 0 };
+          const dims = nodeDims.get(n.id) || { w: CARD_W, h: MIN_CARD_H };
+          const x = p.row * (CARD_W + GAP_X) + MARGIN;
+          const cH = colHeights[p.col] || MIN_CARD_H;
+          const y = (colY[p.col] || MARGIN) + (cH - dims.h) / 2;
+          nodeCoords.set(n.id, { x, y, w: dims.w, h: dims.h });
+        });
+      }
+
+      return { nodeCoords, edgePaths: null };
+    }
+
+    // Render smooth SVG path for Dagre control points
+    function renderDagreEdge(points) {
+      if (!points || points.length === 0) return "";
+      if (points.length === 2) {
+        return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+      }
+      if (points.length === 3) {
+        return `M ${points[0].x} ${points[0].y} Q ${points[1].x} ${points[1].y} ${points[2].x} ${points[2].y}`;
+      }
+      const lineGen = d3.line()
+        .x(d => d.x)
+        .y(d => d.y)
+        .curve(d3.curveBasis);
+      return lineGen([points[0], ...points, points[points.length - 1]]);
     }
 
     // Compute Lineage (Ancestors and Descendants)
@@ -689,7 +1153,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       return { upstream, downstream, upEdges, downEdges };
     }
 
-    // Render Graph with Dagre Layout
+    // Render Graph with Dual Layout Support (Dagre or Aligned)
     function renderGraph() {
       const { nodes, edges } = getFilteredData();
       if (nodes.length === 0) {
@@ -698,27 +1162,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         return;
       }
 
-      // Initialize Dagre Graph
-      const g = new dagre.graphlib.Graph();
-      g.setDefaultEdgeLabel(() => ({}));
-      g.setGraph({
-        rankdir: currentOrientation,
-        nodesep: currentOrientation === "LR" ? 25 : 35,
-        ranksep: currentOrientation === "LR" ? 60 : 45,
-        marginx: 40,
-        marginy: 40
-      });
-
-      nodes.forEach(n => g.setNode(n.id, { width: CARD_W, height: CARD_H }));
-      edges.forEach(e => g.setEdge(e.source, e.target));
-
-      dagre.layout(g);
+      // Fall back to Aligned layout if Dagre library is unavailable
+      let layoutRes;
+      if (currentLayout === "dagre" && typeof dagre !== "undefined") {
+        layoutRes = computeDagreLayout(nodes, edges, currentOrientation);
+      } else {
+        layoutRes = computeAlignedLayout(nodes, edges, currentOrientation);
+      }
+      const nodeCoords = layoutRes.nodeCoords;
+      const dagreEdgePaths = layoutRes.edgePaths;
 
       // Render Edges
       const edgesLayer = d3.select("#edges-layer");
       edgesLayer.selectAll("*").remove();
 
-      const edgePaths = edgesLayer.selectAll(".edge-path")
+      edgesLayer.selectAll(".edge-path")
         .data(edges, d => `${d.source}->${d.target}`)
         .enter()
         .append("path")
@@ -726,12 +1184,38 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .attr("id", d => `edge-${d.source}-${d.target}`)
         .attr("marker-end", "url(#arrow-default)")
         .attr("d", d => {
-          const edgeInfo = g.edge(d.source, d.target);
-          if (!edgeInfo || !edgeInfo.points) return "";
-          return d3.line()
-            .x(p => p.x)
-            .y(p => p.y)
-            .curve(d3.curveBasis)(edgeInfo.points);
+          const key = `${d.source}->${d.target}`;
+          if (dagreEdgePaths && dagreEdgePaths.has(key)) {
+            return renderDagreEdge(dagreEdgePaths.get(key));
+          }
+
+          const src = nodeCoords.get(d.source);
+          const tgt = nodeCoords.get(d.target);
+          if (!src || !tgt) return "";
+
+          if (currentOrientation === "LR") {
+            const sx = src.x + src.w;
+            const sy = src.y + src.h / 2;
+            const tx = tgt.x;
+            const ty = tgt.y + tgt.h / 2;
+
+            if (Math.abs(sy - ty) < 1.0) {
+              return `M ${sx} ${sy} L ${tx} ${ty}`;
+            }
+            const dx = Math.max(30, (tx - sx) * 0.5);
+            return `M ${sx} ${sy} C ${sx + dx} ${sy}, ${tx - dx} ${ty}, ${tx} ${ty}`;
+          } else {
+            const sx = src.x + src.w / 2;
+            const sy = src.y + src.h;
+            const tx = tgt.x + tgt.w / 2;
+            const ty = tgt.y;
+
+            if (Math.abs(sx - tx) < 1.0) {
+              return `M ${sx} ${sy} L ${tx} ${ty}`;
+            }
+            const dy = Math.max(30, (ty - sy) * 0.5);
+            return `M ${sx} ${sy} C ${sx} ${sy + dy}, ${tx} ${ty - dy}, ${tx} ${ty}`;
+          }
         });
 
       // Render Nodes
@@ -744,18 +1228,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .append("g")
         .attr("class", "node-group")
         .attr("transform", d => {
-          const pos = g.node(d.id);
-          return `translate(${pos.x - CARD_W / 2}, ${pos.y - CARD_H / 2})`;
+          const coords = nodeCoords.get(d.id);
+          return coords ? `translate(${coords.x}, ${coords.y})` : `translate(0, 0)`;
         });
 
       nodeGroups.each(function(d) {
+        const coords = nodeCoords.get(d.id) || { w: CARD_W, h: MIN_CARD_H };
         const fo = d3.select(this)
           .append("foreignObject")
-          .attr("width", CARD_W)
-          .attr("height", CARD_H);
+          .attr("width", coords.w)
+          .attr("height", coords.h);
 
         const card = fo.append("xhtml:div")
-          .attr("class", `node-card status-${d.status}`)
+          .attr("class", `node-card type-${d.type} status-${d.status}`)
           .attr("id", `card-${d.id}`);
 
         // Header
@@ -768,7 +1253,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           .attr("class", "node-status-badge")
           .text(d.status);
 
-        // Subline
+        // Subline (Line 2: Job hash only)
         const subline = card.append("div").attr("class", "node-subline");
         const hashSpan = subline.append("span")
           .attr("class", "node-hash")
@@ -778,24 +1263,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           e.stopPropagation();
           copyText(d.id, "job ID");
         });
-        subline.append("span")
-          .attr("class", "node-type")
-          .text(d.type);
 
         // Tags
         const tagsContainer = card.append("div").attr("class", "node-tags");
-        const tagEntries = Object.entries(d.tags || {});
-        if (tagEntries.length > 0) {
-          tagEntries.slice(0, 3).forEach(([k, v]) => {
+        const dims = computeCardDimensions(d);
+        if (dims.visibleTags && dims.visibleTags.length > 0) {
+          dims.visibleTags.forEach(([k, v]) => {
             tagsContainer.append("span")
               .attr("class", "tag-pill")
               .attr("title", `${k}=${v}`)
               .text(`${k}:${v}`);
           });
-          if (tagEntries.length > 3) {
+          if (dims.hiddenCount > 0) {
+            const hiddenSummary = (dims.allTags || []).slice(-dims.hiddenCount).map(([k, v]) => `${k}=${v}`).join(", ");
             tagsContainer.append("span")
-              .attr("class", "tag-pill")
-              .text(`+${tagEntries.length - 3}`);
+              .attr("class", "tag-pill tag-more")
+              .attr("title", hiddenSummary)
+              .text(`+${dims.hiddenCount} more`);
           }
         }
 
@@ -969,7 +1453,32 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       svg.transition().duration(500).call(zoom.transform, transform);
     }
 
+    function updateLayoutButtons() {
+      const btnDagre = document.getElementById("btn-layout-dagre");
+      const btnAligned = document.getElementById("btn-layout-aligned");
+      if (btnDagre && btnAligned) {
+        btnDagre.classList.toggle("active", currentLayout === "dagre");
+        btnAligned.classList.toggle("active", currentLayout === "aligned");
+      }
+    }
+
     // Event Listeners
+    document.getElementById("btn-layout-dagre").addEventListener("click", () => {
+      if (currentLayout !== "dagre") {
+        currentLayout = "dagre";
+        updateLayoutButtons();
+        renderGraph();
+      }
+    });
+
+    document.getElementById("btn-layout-aligned").addEventListener("click", () => {
+      if (currentLayout !== "aligned") {
+        currentLayout = "aligned";
+        updateLayoutButtons();
+        renderGraph();
+      }
+    });
+
     document.getElementById("btn-fit").addEventListener("click", fitView);
     document.getElementById("btn-zoom-in").addEventListener("click", () => {
       svg.transition().duration(250).call(zoom.scaleBy, 1.3);
@@ -983,8 +1492,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       renderGraph();
     });
 
-    document.getElementById("tasks-only-toggle").addEventListener("change", (e) => {
-      tasksOnly = e.target.checked;
+    const showConfigsToggle = document.getElementById("show-configs-toggle");
+    showConfigsToggle.checked = showConfigs;
+    showConfigsToggle.addEventListener("change", (e) => {
+      showConfigs = e.target.checked;
       renderGraph();
     });
 
@@ -994,6 +1505,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       renderGraph();
     });
 
+    // Initialize layout button active states
+    updateLayoutButtons();
+
     // Initial render
     renderGraph();
   </script>
@@ -1002,7 +1516,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def generate_dag_html(dag_json: dict[str, Any], title: str = "") -> str:
+def generate_dag_html(
+    dag_json: dict[str, Any],
+    title: str = "",
+    default_layout: str = "dagre",
+) -> str:
     """Generate a self-contained interactive HTML web page for the experiment DAG."""
     exp_id = dag_json.get("experiment_id") or "Experiment"
     run_id = dag_json.get("run_id") or ""
@@ -1010,6 +1528,7 @@ def generate_dag_html(dag_json: dict[str, Any], title: str = "") -> str:
 
     html = HTML_TEMPLATE.replace("__TITLE__", page_title)
     html = html.replace("__RUN_ID__", run_id if run_id else "latest")
+    html = html.replace("__DEFAULT_LAYOUT__", default_layout)
     html = html.replace("__GRAPH_DATA__", json.dumps(dag_json))
     return html
 
@@ -1018,9 +1537,10 @@ def serve_dag_web(
     dag_json: dict[str, Any],
     port: int = 0,
     open_browser: bool = True,
+    default_layout: str = "dagre",
 ) -> None:
     """Start an ephemeral HTTP server to view the interactive DAG and open the browser."""
-    html_content = generate_dag_html(dag_json).encode("utf-8")
+    html_content = generate_dag_html(dag_json, default_layout=default_layout).encode("utf-8")
 
     class DAGRequestHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802

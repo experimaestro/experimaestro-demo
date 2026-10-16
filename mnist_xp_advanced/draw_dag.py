@@ -17,10 +17,10 @@ Run with::
     # Interactive matplotlib plot:
     uv run python -m mnist_xp_advanced.draw_dag
 
-    # List all hyperparameter trials:
+    # List all hyperparameter configurations:
     uv run python -m mnist_xp_advanced.draw_dag --list-configs
 
-    # Inspect a single configuration trial:
+    # Inspect a single configuration:
     uv run python -m mnist_xp_advanced.draw_dag --single-config -c 0
     uv run python -m mnist_xp_advanced.draw_dag --filter "lr=0.001,kernel_size=3"
 
@@ -405,7 +405,7 @@ def main() -> None:
     parser.add_argument(
         "--single-config",
         action="store_true",
-        help="Render the DAG for a single grid trial configuration (defaults to config index 0).",
+        help="Render the DAG for a single grid configuration (defaults to config index 0).",
     )
     parser.add_argument(
         "-c",
@@ -423,6 +423,12 @@ def main() -> None:
         "--include-actions",
         action="store_true",
         help="Include downstream Action and EvaluatedModel nodes when filtering by configuration.",
+    )
+    parser.add_argument(
+        "--layout",
+        choices=["dagre", "aligned"],
+        default="dagre",
+        help="Layout algorithm for interactive web view: 'dagre' (default) or 'aligned' (stage-aligned flow).",
     )
     args = parser.parse_args()
 
@@ -497,7 +503,11 @@ def main() -> None:
             run_id=run_id,
             workspace=workspace_path,
         )
-        html_str = generate_dag_html(dag_json, title=f"Experimaestro DAG - {args.experiment_id}")
+        html_str = generate_dag_html(
+            dag_json,
+            title=f"Experimaestro DAG - {args.experiment_id}",
+            default_layout=args.layout,
+        )
         args.html.write_text(html_str)
         print(f"Saved interactive DAG HTML to {args.html}")  # noqa: T201
         return
@@ -513,7 +523,7 @@ def main() -> None:
             run_id=run_id,
             workspace=workspace_path,
         )
-        serve_dag_web(dag_json)
+        serve_dag_web(dag_json, default_layout=args.layout)
         return
 
     # Default / Matplotlib & Text Tree visualization

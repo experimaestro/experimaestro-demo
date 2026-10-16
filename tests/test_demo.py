@@ -270,19 +270,42 @@ def test_xpm_dag_json_and_html_generation(tmp_path):
     assert train_node["dependsOn"] == ["j_root"]
     assert train_node["depends_on"] == ["j_root"]
     assert train_node["tags"] == {"lr": 0.001, "hidden_dim": 32}
+    # Verify precomputed layout coordinates
+    assert "depth" in train_node
+    assert "col" in train_node
+    assert "row" in train_node
+    assert "x" in train_node
+    assert "y" in train_node
+    assert train_node["col"] >= 1
 
-    # 2. Test generate_dag_html
+    # 2. Test generate_dag_html with default layout (Dagre)
     html_output = generate_dag_html(dag_json, title="Test DAG Visualization")
     assert "<!DOCTYPE html>" in html_output
     assert "Test DAG Visualization" in html_output
     assert "20260101_120000" in html_output
     assert "j_train" in html_output
+    assert "computeDagreLayout" in html_output
+    assert "computeAlignedLayout" in html_output
+    assert "computeGridStages" in html_output
+    assert 'let currentLayout = "dagre"' in html_output
     assert "dagre.min.js" in html_output
+    assert "btn-layout-dagre" in html_output
+    assert "btn-layout-aligned" in html_output
+    assert "show-configs-toggle" in html_output
+    assert "Show Configs" in html_output
+    assert "LIMIT_HEIGHT = 140" in html_output
+    assert "computeCardDimensions" in html_output
+    assert ".type-config" in html_output
+    assert ".status-done" in html_output
     assert "d3@7" in html_output
+
+    # 3. Test generate_dag_html with explicit Aligned layout
+    html_aligned = generate_dag_html(dag_json, default_layout="aligned")
+    assert 'let currentLayout = "aligned"' in html_aligned
 
 
 def test_draw_dag_cli_json_and_html(tmp_path, monkeypatch):
-    """Verify draw_dag main() CLI with --json and --html flags."""
+    """Verify draw_dag main() CLI with --json, --html, and --layout flags."""
     import json
     from mnist_xp_advanced import draw_dag
 
@@ -319,7 +342,7 @@ def test_draw_dag_cli_json_and_html(tmp_path, monkeypatch):
     assert loaded["run_id"] == "20260101_120000"
     assert len(loaded["nodes"]) == 2
 
-    # 2. Test --html to file
+    # 2. Test --html to file with default layout (Dagre)
     html_path = tmp_path / "out.html"
     monkeypatch.setattr(
         "sys.argv",
@@ -329,7 +352,45 @@ def test_draw_dag_cli_json_and_html(tmp_path, monkeypatch):
     assert html_path.exists()
     content = html_path.read_text()
     assert "<!DOCTYPE html>" in content
-    assert "dagre.min.js" in content
+    assert 'let currentLayout = "dagre"' in content
+    assert "btn-layout-dagre" in content
+
+    # 3. Test --html with --layout aligned
+    html_aligned_path = tmp_path / "out_aligned.html"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["draw_dag", "--html", str(html_aligned_path), "--layout", "aligned"],
+    )
+    draw_dag.main()
+    assert html_aligned_path.exists()
+    content_aligned = html_aligned_path.read_text()
+    assert 'let currentLayout = "aligned"' in content_aligned
+
+
+def test_get_experiment_configs_detection_logging(tmp_path, caplog):
+    """Verify that get_experiment_configs logs detected grid search configurations at INFO level."""
+    import json
+    import logging
+    from mnist_xp_advanced.xpm_dag import get_experiment_configs
+
+    run_dir = tmp_path / "test_run"
+    run_dir.mkdir()
+    jobs_file = run_dir / "jobs.jsonl"
+    records = [
+        {"job_id": "j1", "tags": {"lr": 0.01, "hidden_dim": 32}},
+        {"job_id": "j2", "tags": {"lr": 0.02, "hidden_dim": 64}},
+        {"job_id": "j3", "tags": None},
+    ]
+    with jobs_file.open("w") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+
+    with caplog.at_level(logging.INFO):
+        configs = get_experiment_configs(run_dir)
+        assert len(configs) == 2
+        assert "Detected 2 grid search configuration(s)" in caplog.text
+        assert "hidden_dim, lr" in caplog.text
+
 
 
 

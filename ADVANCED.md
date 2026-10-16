@@ -63,35 +63,38 @@ The advanced demo showcases how tasks can depend on each other. The `Evaluate` t
 
 The implementation is modularized across three components:
 - `mnist_xp_advanced/draw_dag.py`: The CLI entry point and coordinating interface.
-- `mnist_xp_advanced/xpm_dag.py`: Core graph loading, 3-pass topological depth alignment, single-config extraction, and standardized dual-compatible JSON serialization.
-- `mnist_xp_advanced/xpm_web_dag.py`: Interactive web utilities including Dagre.js layout generation, pan/zoom, dynamic trial filtering, lineage highlighting, task inspector drawer, and local ephemeral web server.
+- `mnist_xp_advanced/xpm_dag.py`: Core graph loading, grid search config detection logging, 4-pass topological depth alignment, single-config extraction, and standardized dual-compatible JSON serialization.
+- `mnist_xp_advanced/xpm_web_dag.py`: Interactive web utilities including Dagre.js and Aligned layout engines, dynamic card heights with 140px tag overflow truncation, pan/zoom, dynamic configuration filtering, lineage highlighting, task inspector drawer, and local ephemeral web server.
 
 #### Visualizing the DAG
 
 ```bash
-# 1. Interactive Web DAG Viewer (opens in your default browser)
+# 1. Interactive Web DAG Viewer (opens in your default browser, defaults to Dagre layout)
 uv run python -m mnist_xp_advanced.draw_dag --web
 
-# 2. Export a standalone interactive HTML report (shareable, zero-install)
+# 2. Launch web viewer with Aligned (stage-aligned grid) layout
+uv run python -m mnist_xp_advanced.draw_dag --web --layout aligned
+
+# 3. Export a standalone interactive HTML report (shareable, zero-install)
 uv run python -m mnist_xp_advanced.draw_dag --html dag.html
 
-# 3. Export standardized JSON graph (compatible with Experimaestro web CLI schema)
+# 4. Export standardized JSON graph (compatible with Experimaestro web CLI schema)
 uv run python -m mnist_xp_advanced.draw_dag --json
 uv run python -m mnist_xp_advanced.draw_dag --json dag.json
 
-# 4. List all distinct configuration trials found in the experiment run
+# 5. List all distinct configurations found in the experiment run
 uv run python -m mnist_xp_advanced.draw_dag --list-configs
 
-# 5. View only a specific configuration by index (e.g. trial [0])
+# 6. View only a specific configuration by index (e.g. config [0])
 uv run python -m mnist_xp_advanced.draw_dag --single-config -c 0
 
-# 6. Filter trials by hyperparameters (e.g. lr=0.001 and kernel_size=3)
+# 7. Filter configurations by hyperparameters (e.g. lr=0.001 and kernel_size=3)
 uv run python -m mnist_xp_advanced.draw_dag --filter "lr=0.001,kernel_size=3"
 
-# 7. Include downstream action candidates (EvaluatedModel / ExportBestModel) for that trial
+# 8. Include downstream action candidates (EvaluatedModel / ExportBestModel) for that configuration
 uv run python -m mnist_xp_advanced.draw_dag --single-config -c 0 --include-actions
 
-# 8. Terminal ASCII tree only (skip GUI/plot)
+# 9. Terminal ASCII tree only (skip GUI/plot)
 uv run python -m mnist_xp_advanced.draw_dag --no-plot
 
 # 9. Matplotlib interactive plot or export to image

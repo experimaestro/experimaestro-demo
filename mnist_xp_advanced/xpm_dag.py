@@ -238,6 +238,13 @@ def get_experiment_configs(run_dir: Path) -> list[dict]:
                 if key not in seen:
                     seen.add(key)
                     configs.append(tags_dict)
+    if configs:
+        param_keys = sorted(set().union(*(c.keys() for c in configs)))
+        logging.info(
+            "Detected %d grid search configuration(s) (parameters: %s)",
+            len(configs),
+            ", ".join(param_keys),
+        )
     return configs
 
 
@@ -267,7 +274,7 @@ def filter_subgraph_by_config(
     target_tags: dict,
     include_actions: bool = False,
 ) -> tuple[dict, dict[str, list[str]]]:
-    """Extract a subgraph for a single configuration trial or a subset of trials."""
+    """Extract a subgraph for a single configuration or a subset of configurations."""
     # 1. Identify jobs whose tags match all key-values in target_tags
     matching = [
         jid
@@ -513,6 +520,14 @@ def build_dag_json(
 
     configs = get_experiment_configs(run_dir) if run_dir else []
 
+    # Compute deterministic layout matching flat plot
+    dependents: dict[str, list[str]] = {}
+    for jid, deps in dependencies.items():
+        for d in deps:
+            dependents.setdefault(d, []).append(jid)
+
+    depths, pos, reduced_dag = compute_dag_layout(full_jobs, dependencies, dependents)
+
     nodes: list[dict[str, Any]] = []
     for jid, config in full_jobs.items():
         name = type(config).__name__.replace(".XPMConfig", "")
@@ -540,6 +555,10 @@ def build_dag_json(
         task_id = job_task_ids.get(jid, name)
         locator = f"jobs/{jid}" if (is_task or is_action) else ""
 
+        coord = pos.get(jid, (0.0, 0.0))
+        depth_val = depths.get(jid, 0)
+        row_val = round(-coord[1] / (BOX_H + MARGIN_Y)) if (BOX_H + MARGIN_Y) > 0 else 0
+
         node_dict = {
             # Dual identifier keys
             "id": jid,
@@ -556,19 +575,15 @@ def build_dag_json(
             "dependsOn": deps,
             "locator": locator,
             "timestamp": job_timestamps.get(jid),
+            # Layout coordinates matching flat plot
+            "depth": depth_val,
+            "col": depth_val,
+            "row": row_val,
+            "x": coord[0],
+            "y": coord[1],
         }
         nodes.append(node_dict)
 
-    # Build edges (using transitive reduction for clean layout)
-    dag = nx.DiGraph()
-    for n in nodes:
-        dag.add_node(n["id"])
-    for n in nodes:
-        for dep in n["depends_on"]:
-            if dep in dag:
-                dag.add_edge(dep, n["id"])
-
-    reduced_dag = nx.transitive_reduction(dag) if dag.number_of_nodes() > 0 else dag
     edges: list[dict[str, str]] = [
         {"source": u, "target": v} for u, v in reduced_dag.edges()
     ]
