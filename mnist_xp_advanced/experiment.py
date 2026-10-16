@@ -150,4 +150,4 @@ def run(helper: ExperimentHelper, cfg: Configuration):
 
     # Wait that everything finishes.
     helper.xp.wait()
-    logging.info("Experiment is complete ! You can separately run `python -m mnist_xp.analyze` to inspect the results.")
+    logging.info("Experiment is complete ! You can separately run `python -m mnist_xp_advanced.analyze` to inspect the results.")

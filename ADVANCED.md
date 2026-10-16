@@ -48,16 +48,41 @@ Actions are registered during the experiment run but executed separately afterwa
 # List available actions for an experiment
 uv run experimaestro experiments actions list MNIST_train_advanced
 
-# Run a specific action
-uv run experimaestro experiments actions run MNIST_train_advanced <action-id>
+# Run an action (omitting the action ID prompts interactively):
+uv run experimaestro experiments actions run MNIST_train_advanced
 ```
+
+> **Note:** If you used `--workdir` when running the experiment, place `--workdir` before `actions`:
+> ```bash
+> uv run experimaestro experiments --workdir ~/experiments/mnist_xp_advanced actions list MNIST_train_advanced
+> ```
 
 ### Complex Dependency Graphs (DAGs)
 
 The advanced demo showcases how tasks can depend on each other. The `Evaluate` task only runs after the `Learn` task finishes successfully. You can visualize this DAG using the provided script:
 
 ```bash
-uv run python -m mnist_xp.draw_dag --workspace ~/experiments/mnist_xp_advanced --experiment-id MNIST_train_advanced
+# Print the dependency tree directly in your terminal:
+uv run python -m mnist_xp_advanced.draw_dag
+
+# Or save a visual graph to an image file:
+uv run python -m mnist_xp_advanced.draw_dag --save-plot dag.png
+
+# Or display it interactively with matplotlib:
+uv run python -m mnist_xp_advanced.draw_dag --plot
+```
+
+### Standalone Post-Hoc Analysis
+
+While simple experiments can print results directly at completion time, complex research workflows benefit from **standalone analysis**:
+- **Offline Inspection:** Inspect results and evaluate candidate models from past experiments without keeping in-memory state.
+- **Cluster/Remote Workflows:** Reconstruct evaluation tables and model configurations serialized to disk (`objects.jsonl` and `jobs.jsonl`) via `load_xp_info`.
+- **Action Discovery:** Inspect registered actions (`info.actions`) programmatically.
+
+The `mnist_xp_advanced/analyze.py` script demonstrates this pattern:
+
+```bash
+uv run python -m mnist_xp_advanced.analyze
 ```
 
 ## Running the Advanced Demo
@@ -66,12 +91,15 @@ uv run python -m mnist_xp.draw_dag --workspace ~/experiments/mnist_xp_advanced -
     ```bash
     uv run experimaestro run-experiment mnist_xp_advanced/params.yaml
     ```
+    *(Or specify `--workdir ~/experiments/mnist_xp_advanced` if not using global workspace triggers).*
 
-2.  **Monitor progress:**
-    Use the TUI as described in the main [README.md](./README.md).
+2.  **Inspect results:**
+    ```bash
+    uv run python -m mnist_xp_advanced.analyze
+    ```
 
 3.  **Run the post-experiment action:**
-    Once all tasks are finished, export the best model:
+    Once all tasks are finished, run the interactive action prompt to export the best model:
     ```bash
-    uv run experimaestro experiments actions run MNIST_train_advanced export_best_model
+    uv run experimaestro experiments actions run MNIST_train_advanced
     ```

@@ -1,8 +1,8 @@
-"""Read back the results of a finished MNIST_train run.
+"""Read back the results of a finished MNIST_train_advanced run.
 
 Run with::
 
-    uv run python -m mnist_xp.analyze
+    uv run python -m mnist_xp_advanced.analyze
 
 This is the standalone analysis pattern from the walkthrough: it reuses the
 configs experimaestro auto-serialised to ``<run-dir>/objects.jsonl`` at
@@ -13,6 +13,7 @@ required.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from pathlib import Path
 
@@ -29,12 +30,12 @@ def main() -> None:
     parser.add_argument(
         "--workspace",
         type=Path,
-        default=Path("~/experiments/mnist_xp").expanduser(),
+        default=Path("~/experiments/mnist_xp_advanced").expanduser(),
         help="Workspace path (the `path:` value from settings.yaml).",
     )
     parser.add_argument(
         "--experiment-id",
-        default="MNIST_train",
+        default="MNIST_train_advanced",
         help="Experiment id (matches the `id:` field in params.yaml).",
     )
     parser.add_argument(
@@ -56,13 +57,31 @@ def main() -> None:
     provider = WorkspaceStateProvider(workspace)
     info = provider.load_xp_info(args.experiment_id, run_id=args.run_id)
 
+    run_id = args.run_id or provider.get_current_run(args.experiment_id)
+    job_tags_dict: dict[str, dict] = {}
+    if run_id:
+        jobs_jsonl = provider.workspace_path / "experiments" / args.experiment_id / run_id / "jobs.jsonl"
+        if jobs_jsonl.exists():
+            with jobs_jsonl.open() as f:
+                for line in f:
+                    if line.strip():
+                        job_data = json.loads(line)
+                        if "job_id" in job_data and "tags" in job_data:
+                            job_tags_dict[job_data["job_id"]] = job_data["tags"]
+
     rows = []
-    for evaluation in info.jobs.values():
+    for jid, evaluation in info.jobs.items():
         results_path = getattr(evaluation, "results_path", None)
         if results_path is None or not results_path.exists():
             continue
         df = pd.read_csv(results_path)
-        for key, value in tags(evaluation).items():
+        job_tags = dict(tags(evaluation)) or job_tags_dict.get(jid, {})
+        if not job_tags and hasattr(evaluation, "model"):
+            model = evaluation.model
+            for k in ["hidden_dim", "kernel_size", "n_layers"]:
+                if hasattr(model, k):
+                    job_tags[k] = getattr(model, k)
+        for key, value in job_tags.items():
             df[key] = value
         rows.append(df)
 

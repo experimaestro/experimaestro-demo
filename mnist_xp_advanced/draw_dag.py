@@ -78,6 +78,8 @@ def print_robust_tree(
         if already_visited:
             label += " (already shown)"
 
+        connector = "└── " if is_last_node else "├── "
+        print(f"{prefix}{connector}{label}")  # noqa: T201
 
         if already_visited:
             continue
@@ -243,6 +245,8 @@ def plot_dag(
     reduced_dag: nx.DiGraph,
     box_w: float = BOX_W,
     box_h: float = BOX_H,
+    show_plot: bool = True,
+    save_path: Path | None = None,
 ) -> None:
     """Plot the DAG hierarchically using pre-computed layout and reduced graph."""
     import matplotlib.pyplot as plt
@@ -341,7 +345,12 @@ def plot_dag(
     plt.ylim(min_y - box_h, max_y + box_h)
     plt.axis("off")
     plt.tight_layout()
-    plt.show()
+    if save_path:
+        plt.savefig(save_path, bbox_inches="tight")
+        print(f"Saved DAG plot to {save_path}")  # noqa: T201
+    if show_plot:
+        plt.show()
+    plt.close()
 
 
 def main() -> None:
@@ -349,12 +358,13 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--workspace", type=Path, default=Path("~/experiments/mnist_xp_advanced").expanduser()
+        "--workspace", type=Path, default=Path("~/experiments/mnist_xp").expanduser()
     )
-    parser.add_argument("--experiment-id", default="MNIST_train")
+    parser.add_argument("--experiment-id", default="MNIST_train_advanced")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--tasks-only", action="store_true")
-    parser.add_argument("--no-plot", action="store_false", dest="plot", default=True)
+    parser.add_argument("--plot", action="store_true", default=False, help="Display the GUI plot with matplotlib")
+    parser.add_argument("--save-plot", type=Path, default=None, help="Save DAG plot to an image file (e.g. dag.png)")
     args = parser.parse_args()
 
     if args.workspace.exists() and (args.workspace / "experiments").exists():
@@ -362,11 +372,16 @@ def main() -> None:
     else:
         workspace = find_workspace().path
 
+    logging.info(f"Using workspace: {workspace}")
+    
     provider = WorkspaceStateProvider(workspace)
     try:
         run_id = args.run_id or provider.get_current_run(args.experiment_id)
+        if run_id is None:
+            raise FileNotFoundError(f"No run found for experiment '{args.experiment_id}' in workspace {workspace}")
         run_dir = provider.workspace_path / "experiments" / args.experiment_id / run_id
-    except Exception:
+    except Exception as e:
+        print(f"Error: {e}")  # noqa: T201
         return
 
 
@@ -445,8 +460,15 @@ def main() -> None:
         pos,
     )
 
-    if args.plot:
-        plot_dag(full_jobs, job_tags_dict, pos, reduced_dag)
+    if args.plot or args.save_plot:
+        plot_dag(
+            full_jobs,
+            job_tags_dict,
+            pos,
+            reduced_dag,
+            show_plot=args.plot,
+            save_path=args.save_plot,
+        )
 
 
 if __name__ == "__main__":

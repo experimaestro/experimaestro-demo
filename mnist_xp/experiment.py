@@ -64,6 +64,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
         tb = None  # no tensorboard in dry run
 
     # GridSearch: Launch a task for each combination of parameters
+    evaluations: list[tuple[Evaluate, dict[str, int]]] = []
     for n_layer in cfg.n_layers:
         for hidden_dim in cfg.hidden_dim:
             for kernel_size in cfg.kernel_size:
@@ -97,32 +98,39 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 # Evaluate the model on the test set
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
                 evaluate.submit(init_tasks=[loader])
+                evaluations.append(
+                    (
+                        evaluate,
+                        {
+                            "hidden_dim": hidden_dim,
+                            "kernel_size": kernel_size,
+                            "n_layers": n_layer,
+                        },
+                    )
+                )
 
-    # Wait that everything finishes.
+    # Wait for all tasks to finish
     helper.xp.wait()
 
-    # Results are written to <run-dir>/objects.jsonl as they finish; read
-    # them back later with `analyze.py` (uses load_xp_info / tags).
+    # Collect and print evaluation results
     if helper.xp.workspace.run_mode == RunMode.NORMAL:
-        from experimaestro import load_xp_info, tags
         import pandas as pd
 
-        logging.info("Performing analysis...")
-        info = load_xp_info(helper.xp.workdir)
-
         rows = []
-        for evaluation in info.jobs.values():
-            results_path = getattr(evaluation, "results_path", None)
-            if results_path is None or not results_path.exists():
-                continue
-            df = pd.read_csv(results_path)
-            for key, value in tags(evaluation).items():
-                df[key] = value
-            rows.append(df)
+        for evaluate_task, params in evaluations:
+            if evaluate_task.results_path.exists():
+                df = pd.read_csv(evaluate_task.results_path)
+                for k, v in params.items():
+                    df[k] = v
+                rows.append(df)
 
-        if not rows:
-            logging.warning("No Evaluate results found in this run.")
+        if rows:
+            results_df = pd.concat(rows, ignore_index=True)
+            print("\nExperiment Results:")  # noqa: T201
+            print(results_df.to_string(index=False))  # noqa: T201
+
+            csv_path = helper.xp.resultspath / "results.csv"
+            results_df.to_csv(csv_path, index=False)
+            logging.info("Saved results summary to %s", csv_path)
         else:
-            print(pd.concat(rows).to_string(index=False))  # noqa: T201
-    else:
-        logging.info("Run `python -m mnist_xp.analyze` to inspect the results.")
+            logging.warning("No Evaluate results found in this run.")

@@ -325,7 +325,8 @@ id: MNIST_train
 title: "MNIST training"
 description: "Training a simple CNN model on MNIST"
 # what experiment file to run
-file: experiment # will run experiment.py
+module: mnist_xp.experiment
+pythonpath: [..]
 
 # Launcher configuration: what resources we need to run a Task
 launcher: "duration=1h & cuda(mem=4G)*1 & cpu(cores=4)"
@@ -367,22 +368,23 @@ the dry-run mode notably features:
 If you are happy with the output of the dry-run, you can now actually launch them !
 
 ```bash
-uv run experimaestro run-experiment mnist_xp/params.yaml --run-mode dry_run 
+uv run experimaestro run-experiment mnist_xp/params.yaml
 ```
 
 Now experimaestro will:
-- Lock the experiment MNIST_train so that you cannot relaunch it while this one is running.
+- Lock the experiment `MNIST_train` so that you cannot relaunch it while this one is running.
 - Run `experiment.py` with the configuration values from `params.yaml`
 - For each Task submitted in the experiment:
-    -  A unique hash ID is created depending on the parameters given to the task. (This ensures that you don't run the Task with the same params twice.)
-    - A folder is created in the `workspace/jobs/task-class/task-id`, it will be the working directory for the Task in which you can find the logs and the outputs.
+    - A unique hash ID is created depending on the parameters given to the task (this ensures you don't run the Task with the same params twice).
+    - A folder is created in `workspace/jobs/task-class/task-id`, which serves as the working directory for the Task containing logs and outputs.
+- Once all tasks complete, `experiment.py` automatically aggregates the evaluation metrics, prints the summary table directly to the console, and saves `results.csv` into the experiment's results directory.
 
 
 3.  **Monitor with the TUI:**
 
 Experimaestro also features a tool for monitoring all your tasks and experiments:
 
-You can run a TUI-based monitor in the terminal with
+You can run a TUI-based monitor in the terminal with:
 ```bash
 uv run experimaestro experiments monitor --console
 ```
