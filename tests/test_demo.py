@@ -229,3 +229,107 @@ def test_resolve_run_dir_error_reporting(tmp_path, caplog):
         assert "'20260101_120000'" in caplog.text
 
 
+def test_xpm_dag_json_and_html_generation(tmp_path):
+    """Verify dual-compatible JSON serialization and self-contained HTML generation."""
+    from mnist_xp_advanced.xpm_dag import build_dag_json
+    from mnist_xp_advanced.xpm_web_dag import generate_dag_html
+
+    class MockTask:
+        pass
+
+    full_jobs = {
+        "j_root": MockTask(),
+        "j_train": MockTask(),
+    }
+    dependencies = {
+        "j_train": ["j_root"],
+    }
+    job_tags_dict = {
+        "j_train": {"lr": 0.001, "hidden_dim": 32},
+    }
+
+    # 1. Test build_dag_json
+    dag_json = build_dag_json(
+        full_jobs=full_jobs,
+        dependencies=dependencies,
+        job_tags_dict=job_tags_dict,
+        experiment_id="Test_Experiment",
+        run_id="20260101_120000",
+        workspace="/tmp/ws",
+    )
+
+    assert dag_json["experiment_id"] == "Test_Experiment"
+    assert dag_json["run_id"] == "20260101_120000"
+    assert len(dag_json["nodes"]) == 2
+    assert len(dag_json["edges"]) == 1
+
+    train_node = next(n for n in dag_json["nodes"] if n["id"] == "j_train")
+    # Verify dual-compatible keys
+    assert train_node["jobId"] == "j_train"
+    assert train_node["taskId"] == "MockTask"
+    assert train_node["dependsOn"] == ["j_root"]
+    assert train_node["depends_on"] == ["j_root"]
+    assert train_node["tags"] == {"lr": 0.001, "hidden_dim": 32}
+
+    # 2. Test generate_dag_html
+    html_output = generate_dag_html(dag_json, title="Test DAG Visualization")
+    assert "<!DOCTYPE html>" in html_output
+    assert "Test DAG Visualization" in html_output
+    assert "20260101_120000" in html_output
+    assert "j_train" in html_output
+    assert "dagre.min.js" in html_output
+    assert "d3@7" in html_output
+
+
+def test_draw_dag_cli_json_and_html(tmp_path, monkeypatch):
+    """Verify draw_dag main() CLI with --json and --html flags."""
+    import json
+    from mnist_xp_advanced import draw_dag
+
+    class MockTask:
+        pass
+
+    full_jobs = {"j_root": MockTask(), "j_train": MockTask()}
+    dependencies = {"j_train": ["j_root"]}
+    job_tags_dict = {"j_train": {"lr": 0.001}}
+
+    run_dir = tmp_path / "experiments" / "MNIST_train_advanced" / "20260101_120000"
+    run_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        draw_dag,
+        "resolve_run_dir",
+        lambda ws, exp_id, run_id: ("20260101_120000", run_dir),
+    )
+    monkeypatch.setattr(
+        draw_dag,
+        "load_run_graph",
+        lambda r_dir: (full_jobs, dependencies, job_tags_dict),
+    )
+
+    # 1. Test --json to file
+    json_path = tmp_path / "out.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["draw_dag", "--json", str(json_path)],
+    )
+    draw_dag.main()
+    assert json_path.exists()
+    loaded = json.loads(json_path.read_text())
+    assert loaded["run_id"] == "20260101_120000"
+    assert len(loaded["nodes"]) == 2
+
+    # 2. Test --html to file
+    html_path = tmp_path / "out.html"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["draw_dag", "--html", str(html_path)],
+    )
+    draw_dag.main()
+    assert html_path.exists()
+    content = html_path.read_text()
+    assert "<!DOCTYPE html>" in content
+    assert "dagre.min.js" in content
+
+
+
