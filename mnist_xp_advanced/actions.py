@@ -16,15 +16,25 @@ import shutil
 from pathlib import Path
 
 from experimaestro import Action, Config, Interaction, Param
-from mnist_xp.learn import CNN
+from mnist_xp.learn import CNN, Evaluate, Learn
 
 
 class EvaluatedModel(Config):
-    """One trained-and-evaluated CNN; bundled so a single ``ExportBestModel``
-    action can compare all candidates at execution time."""
+    """One trained-and-evaluated CNN candidate.
+
+    Bundles the model configuration and the corresponding Learn and Evaluate tasks
+    so that actions like ``ExportBestModel`` can compare candidates at execution time
+    and trace exact lineage in the experiment DAG.
+    """
 
     cnn: Param[CNN]
     """The CNN configuration (carries the hyperparameters)."""
+
+    learn: Param[Learn]
+    """The training task."""
+
+    evaluate: Param[Evaluate]
+    """The evaluation task."""
 
     parameters_path: Param[Path]
     """Path to the saved ``parameters.pth`` written by ``Learn``."""

@@ -57,33 +57,24 @@ uv run experimaestro experiments actions run MNIST_train_advanced
 > uv run experimaestro experiments --workdir ~/experiments/mnist_xp_advanced actions list MNIST_train_advanced
 > ```
 
-### Complex Dependency Graphs (DAGs)
+### Dependency Graphs (DAG) Visualization
 
 The advanced demo showcases how tasks can depend on each other. The `Evaluate` task only runs after the `Learn` task finishes successfully. You can visualize this DAG using the provided script:
 
 ```bash
-# Print the dependency tree directly in your terminal:
-uv run python -m mnist_xp_advanced.draw_dag
+# 1. List all distinct configuration trials found in the experiment run
+uv run python -m mnist_xp_advanced.draw_dag --list-configs
 
-# Or save a visual graph to an image file:
-uv run python -m mnist_xp_advanced.draw_dag --save-plot dag.png
+# 2. View only a specific configuration by index (e.g. trial [0])
+uv run python -m mnist_xp_advanced.draw_dag --single-config -c 0
 
-# Or display it interactively with matplotlib:
-uv run python -m mnist_xp_advanced.draw_dag --plot
+# 3. Filter trials by hyperparameters (e.g. lr=0.001 and kernel_size=3)
+uv run python -m mnist_xp_advanced.draw_dag --filter "lr=0.001,kernel_size=3"
+
+# 4. Include downstream action candidates (EvaluatedModel / ExportBestModel) for that trial
+uv run python -m mnist_xp_advanced.draw_dag --single-config -c 0 --include-actions
 ```
 
-### Standalone Post-Hoc Analysis
-
-While simple experiments can print results directly at completion time, complex research workflows benefit from **standalone analysis**:
-- **Offline Inspection:** Inspect results and evaluate candidate models from past experiments without keeping in-memory state.
-- **Cluster/Remote Workflows:** Reconstruct evaluation tables and model configurations serialized to disk (`objects.jsonl` and `jobs.jsonl`) via `load_xp_info`.
-- **Action Discovery:** Inspect registered actions (`info.actions`) programmatically.
-
-The `mnist_xp_advanced/analyze.py` script demonstrates this pattern:
-
-```bash
-uv run python -m mnist_xp_advanced.analyze
-```
 
 ## Running the Advanced Demo
 

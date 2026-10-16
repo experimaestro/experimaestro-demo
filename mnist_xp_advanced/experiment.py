@@ -94,9 +94,11 @@ def run_one_config(config: Configuration, tags: dict, gpulauncher, ds_mnist, tb)
     evaluate = Evaluate.C(model=model, data=ds_mnist.test)
     evaluate.submit(init_tasks=[loader])
 
-    # Return the EvaluatedModel containing all paths required for the export action
+    # Return the EvaluatedModel containing all tasks and paths required for the export action
     return EvaluatedModel.C(
         cnn=model,
+        learn=learn_task,
+        evaluate=evaluate,
         parameters_path=learn_task.parameters_path,
         results_path=evaluate.results_path,
     )

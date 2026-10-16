@@ -1,35 +1,45 @@
-"""Draw the dependency DAG of a finished MNIST_train run as a tree.
+"""Draw the dependency DAG of a finished MNIST_train_advanced run as a tree or plot.
 
 Run with::
 
-    uv run python -m mnist_xp.draw_dag
+    # Text tree output:
+    uv run python -m mnist_xp_advanced.draw_dag --no-plot
 
-This script reuses the analysis pattern to retrieve the dependency graph
-from the workspace state provider and prints it as a tree.
+    # Interactive matplotlib plot:
+    uv run python -m mnist_xp_advanced.draw_dag
+
+    # List all hyperparameter trials:
+    uv run python -m mnist_xp_advanced.draw_dag --list-configs
+
+    # Inspect a single configuration trial:
+    uv run python -m mnist_xp_advanced.draw_dag --single-config -c 0
+    uv run python -m mnist_xp_advanced.draw_dag --filter "lr=0.001,kernel_size=3"
+
+This script extracts the task and configuration dependency graph directly from
+Experimaestro's workspace records (``objects.jsonl`` and ``jobs.jsonl``), computes a
+hierarchical forward topological layout with stage alignment, and renders either
+an ASCII tree or an interactive matplotlib visualization.
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 import json
-import re
+import logging
 from pathlib import Path
-from collections import deque
+import re
 import networkx as nx
 
 from experimaestro import tags
-
-from experimaestro.scheduler.workspace_state_provider import WorkspaceStateProvider
-from experimaestro.settings import find_workspace
 from experimaestro.core.objects.config import ConfigInformation
+from experimaestro.scheduler.workspace_state_provider import WorkspaceStateProvider
+from experimaestro.settings import find_workspace, get_workspace
 
 # Layout constants
 BOX_W = 25.0
-BOX_H = 0.7
+BOX_H = 1.05
 MARGIN_X = 4.0  # Gap between boxes horizontally
-MARGIN_Y = 0.5  # Gap between boxes vertically
-
+MARGIN_Y = 0.55  # Gap between boxes vertically
 
 
 def print_robust_tree(
@@ -48,13 +58,12 @@ def print_robust_tree(
     if not job_ids:
         return
 
-    def job_sort_key(jid):
+    def job_sort_key(jid: str):
         config = info_jobs.get(jid)
-        # Sort by depth, then Y (top to bottom), then name
         return (
             depths.get(jid, 0),
             -pos.get(jid, (0, 0))[1],
-            type(config).__name__,
+            type(config).__name__ if config else "",
             jid,
         )
 
@@ -63,7 +72,7 @@ def print_robust_tree(
     for idx, jid in enumerate(sorted_job_ids):
         is_last_node = is_last and (idx == len(sorted_job_ids) - 1)
         config = info_jobs.get(jid)
-        job_type = type(config).__name__ if config else "Unknown"
+        job_type = type(config).__name__.replace(".XPMConfig", "") if config else "Unknown"
         depth = depths.get(jid, 0)
         y_coord = pos.get(jid, (0, 0))[1]
 
@@ -78,6 +87,8 @@ def print_robust_tree(
         if already_visited:
             label += " (already shown)"
 
+        connector = "└── " if is_last_node else "├── "
+        print(f"{prefix}{connector}{label}")  # noqa: T201
         connector = "└── " if is_last_node else "├── "
         print(f"{prefix}{connector}{label}")  # noqa: T201
 
@@ -102,7 +113,7 @@ def print_robust_tree(
             )
 
 
-def get_all_dependencies(config, full_jobs):
+def get_all_dependencies(config, full_jobs: dict) -> list[str]:
     """Walk the config and its fields to find all dependencies."""
     xpm = config.__xpm__
     dep_ids = set()
@@ -156,39 +167,208 @@ def get_all_dependencies(config, full_jobs):
     return list(dep_ids)
 
 
-def compute_backward_depths(
+def get_experiment_configs(run_dir: Path) -> list[dict]:
+    """Retrieve unique non-empty tag dictionaries from jobs.jsonl in a run directory.
+
+    Args:
+        run_dir: Path to the experiment run folder containing ``jobs.jsonl``.
+
+    Returns:
+        A list of distinct configuration tag dictionaries, ordered as they first appear.
+    """
+    jobs_jsonl = run_dir / "jobs.jsonl"
+    if not jobs_jsonl.exists():
+        return []
+
+    configs: list[dict] = []
+    seen: set[tuple] = set()
+    with jobs_jsonl.open() as f:
+        for line in f:
+            if not line.strip():
+                continue
+            d = json.loads(line)
+            tags_dict = d.get("tags")
+            if tags_dict:
+                key = tuple(sorted(tags_dict.items()))
+                if key not in seen:
+                    seen.add(key)
+                    configs.append(tags_dict)
+    return configs
+
+
+def parse_filter_arg(filter_str: str) -> dict[str, str | int | float]:
+    """Parse a comma-separated key=val filter string into typed values.
+
+    Args:
+        filter_str: A string like "lr=0.001,kernel_size=3".
+
+    Returns:
+        A dictionary mapping tag keys to int, float, or str values.
+    """
+    parsed: dict[str, str | int | float] = {}
+    for item in filter_str.split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        k, v = item.split("=", 1)
+        k, v = k.strip(), v.strip()
+        try:
+            parsed[k] = int(v)
+        except ValueError:
+            try:
+                parsed[k] = float(v)
+            except ValueError:
+                parsed[k] = v
+    return parsed
+
+
+def filter_subgraph_by_config(
     full_jobs: dict,
     dependencies: dict[str, list[str]],
-    dependents: dict[str, list[str]],
+    job_tags_dict: dict[str, dict],
+    target_tags: dict,
+    include_actions: bool = False,
+) -> tuple[dict, dict[str, list[str]]]:
+    """Extract a subgraph for a single configuration trial or a subset of trials.
+
+    Finds jobs matching the specified target tags, gathers their upstream ancestors
+    (such as CNN architectures, datasets, and intermediate ParameterLoaders), and
+    optionally retains downstream action candidates.
+
+    Args:
+        full_jobs: Mapping of job ID to config/task instance.
+        dependencies: Mapping of job ID to list of predecessor job IDs.
+        job_tags_dict: Mapping of job ID to its tag dictionary.
+        target_tags: Dictionary of key-value pairs that matching jobs must satisfy.
+        include_actions: Whether to include downstream actions like EvaluatedModel / ExportBestModel.
+
+    Returns:
+        A tuple of (filtered_full_jobs, filtered_dependencies).
+    """
+    # 1. Identify jobs whose tags match all key-values in target_tags
+    matching = [
+        jid
+        for jid, tags_val in job_tags_dict.items()
+        if jid in full_jobs
+        and all(tags_val.get(k) == v for k, v in target_tags.items())
+    ]
+    if not matching:
+        return {}, {}
+
+    # 2. Traverse upstream ancestors (CNN, Datasets, ParameterLoader)
+    selected_nodes = set(matching)
+    stack = list(matching)
+    while stack:
+        curr = stack.pop()
+        for parent in dependencies.get(curr, []):
+            if parent in full_jobs and parent not in selected_nodes:
+                selected_nodes.add(parent)
+                stack.append(parent)
+
+    # 3. If requested, include downstream actions and evaluated models that depend on matching jobs
+    if include_actions:
+        from experimaestro import Action
+
+        for jid, config in full_jobs.items():
+            if isinstance(config, Action) or type(config).__name__.startswith("EvaluatedModel"):
+                deps = dependencies.get(jid, [])
+                if any(m in deps for m in matching):
+                    selected_nodes.add(jid)
+
+    # 4. Construct filtered jobs and dependencies restricted to selected_nodes
+    filtered_jobs = {jid: full_jobs[jid] for jid in selected_nodes}
+    filtered_dependencies = {
+        jid: [p for p in dependencies.get(jid, []) if p in selected_nodes]
+        for jid in selected_nodes
+    }
+    filtered_dependencies = {k: v for k, v in filtered_dependencies.items() if v}
+    return filtered_jobs, filtered_dependencies
+
+
+def compute_dag_depths(
+    dag: nx.DiGraph,
+    full_jobs: dict,
+    align_types: bool = True,
+    aligned_class_names: set[str] | None = None,
 ) -> dict[str, int]:
-    """Compute depths relative to the end leaves (backward depth)."""
-    dist_from_end = {}
-    out_degree = {jid: len(dependents.get(jid, [])) for jid in full_jobs}
-    queue = deque([jid for jid, deg in out_degree.items() if deg == 0])
+    """Compute horizontal depths for nodes in a DAG with robust stage alignment.
 
-    for jid in queue:
-        dist_from_end[jid] = 0
+    Implements a 3-pass algorithm:
+    1. Base Forward Topological Leveling:
+       Traverses nodes in topological order, assigning base depth as
+       depth(v) = max_{u in deps(v)}(depth(u) + 1), with roots at depth 0.
+    2. Grid Stage Alignment:
+       For task classes representing parallel grid search stages (e.g. Learn,
+       ParameterLoader, Evaluate), finds the maximum depth D_T across all tasks of
+       type T and aligns all tasks of type T to D_T.
+    3. Deep Dependency Forward Push:
+       Traverses all nodes in topological order. For every edge u -> v, if
+       depth(v) <= depth(u), pushes depth(v) = depth(u) + 1. This guarantees
+       strict monotonicity (all edges point forward, depth(v) >= depth(u) + 1)
+       even when a task has deeper dependencies than its peers.
 
-    while queue:
-        u = queue.popleft()
-        for v in dependencies.get(u, []):
-            dist_from_end[v] = max(dist_from_end.get(v, 0), dist_from_end[u] + 1)
-            out_degree[v] -= 1
-            if out_degree[v] == 0:
-                queue.append(v)
+    Args:
+        dag: NetworkX directed acyclic graph where edges represent data/task flow (u -> v).
+        full_jobs: Mapping of job ID to config/task instance.
+        align_types: Whether to align stages by task type.
+        aligned_class_names: Set of class names to align (defaults to Learn, ParameterLoader, Evaluate).
 
-    max_d = max(dist_from_end.values()) if dist_from_end else 0
-    return {jid: max_d - dist for jid, dist in dist_from_end.items()}
+    Returns:
+        Dictionary mapping job ID to integer depth.
+    """
+    if aligned_class_names is None:
+        aligned_class_names = {"Learn", "ParameterLoader", "Evaluate"}
+
+    # Pass 1: Base Forward Topological Leveling
+    depths: dict[str, int] = {}
+    topo_order = list(nx.topological_sort(dag))
+    for node in topo_order:
+        preds = list(dag.predecessors(node))
+        if not preds:
+            depths[node] = 0
+        else:
+            depths[node] = max(depths[p] for p in preds) + 1
+
+    # Pass 2: Grid Stage Alignment
+    if align_types:
+        for tname in aligned_class_names:
+            nodes_t = [
+                n
+                for n in dag.nodes
+                if n in full_jobs
+                and type(full_jobs[n]).__name__.split(".")[0] == tname
+            ]
+            if nodes_t:
+                max_d = max(depths[n] for n in nodes_t)
+                for n in nodes_t:
+                    depths[n] = max_d
+
+    # Pass 3: Deep Dependency Forward Push
+    for node in topo_order:
+        for succ in dag.successors(node):
+            if depths[succ] <= depths[node]:
+                depths[succ] = depths[node] + 1
+
+    return depths
 
 
 def compute_dag_layout(
     full_jobs: dict,
     dependencies: dict[str, list[str]],
     dependents: dict[str, list[str]],
+    align_types: bool = True,
 ) -> tuple[dict[str, int], dict[str, tuple[float, float]], nx.DiGraph]:
-    """Compute depths and (X, Y) coordinates for the DAG to maximize straight arrows."""
-    depths = compute_backward_depths(full_jobs, dependencies, dependents)
+    """Compute depths and (X, Y) coordinates for the DAG to maximize straight arrows.
 
+    Args:
+        full_jobs: Mapping of job ID to config/task instance.
+        dependencies: Mapping of job ID to list of predecessor IDs.
+        dependents: Mapping of job ID to list of successor IDs.
+        align_types: Whether to align pipeline stages by task type.
+
+    Returns:
+        A tuple of (depths, pos, reduced_dag).
+    """
     dag = nx.DiGraph()
     for jid in full_jobs:
         dag.add_node(jid)
@@ -197,32 +377,34 @@ def compute_dag_layout(
             if u in dag and v in dag:
                 dag.add_edge(u, v)
 
+    depths = compute_dag_depths(dag, full_jobs, align_types=align_types)
+
     reduced_dag = nx.transitive_reduction(dag)
     preds = {n: [] for n in full_jobs}
     for u, v in reduced_dag.edges():
         preds[v].append(u)
 
-    pos = {}
+    pos: dict[str, tuple[float, float]] = {}
     unique_depths = sorted(set(depths.values()))
-    nodes_per_type = {}
+    nodes_per_type: dict[str, list[str]] = {}
     for d in unique_depths:
         nodes_at_depth = [jid for jid, depth in depths.items() if depth == d]
 
         # Compute desired Y (average of parents)
-        desired_y = {}
+        desired_y: dict[str, float] = {}
         for jid in nodes_at_depth:
             # Get Y of parents to try to align vertically with them
             p_ys = [pos[p][1] for p in preds[jid] if p in pos]
 
-            # get Y of evenly spaced siblings of the same type at this depth to help group by type
-            tname = type(full_jobs[jid]).__name__
+            # Get Y of evenly spaced siblings of the same type at this depth
+            tname = type(full_jobs[jid]).__name__.split(".")[0]
             sibling_ys = [pos[s][1] for s in nodes_per_type.get(tname, []) if s in pos]
             p_ys.extend(sibling_ys)
 
-            desired_y[jid] = sum(p_ys) / len(p_ys) if p_ys else 0
+            desired_y[jid] = sum(p_ys) / len(p_ys) if p_ys else 0.0
 
-        # Sort primarily by type name to create consistent vertical "bands"
-        # Secondarily by desired Y to keep arrows as straight as possible within bands
+        # Sort primarily by type name to create consistent vertical "bands",
+        # secondarily by desired Y to keep arrows as straight as possible within bands
         nodes_at_depth.sort(
             key=lambda j: (-desired_y[j], type(full_jobs[j]).__name__, j)
         )
@@ -230,9 +412,9 @@ def compute_dag_layout(
         for i, jid in enumerate(nodes_at_depth):
             pos[jid] = (d * (BOX_W + MARGIN_X), -i * (BOX_H + MARGIN_Y))
 
-        # save nodes per type for this depth to help with plotting
+        # Save nodes per type for this depth to help with layout
         for jid in nodes_at_depth:
-            tname = type(full_jobs[jid]).__name__
+            tname = type(full_jobs[jid]).__name__.split(".")[0]
             nodes_per_type.setdefault(tname, []).append(jid)
 
     return depths, pos, reduced_dag
@@ -245,12 +427,26 @@ def plot_dag(
     reduced_dag: nx.DiGraph,
     box_w: float = BOX_W,
     box_h: float = BOX_H,
+    title_suffix: str = "",
     show_plot: bool = True,
     save_path: Path | None = None,
 ) -> None:
-    """Plot the DAG hierarchically using pre-computed layout and reduced graph."""
+    """Plot the DAG hierarchically using pre-computed layout and reduced graph.
+
+    Args:
+        full_jobs: Mapping of job ID to config/task instance.
+        job_tags_dict: Mapping of job ID to tags dictionary.
+        pos: Node coordinates mapping job ID to (x, y).
+        reduced_dag: Transitive reduction of the DAG.
+        box_w: Width of node boxes.
+        box_h: Height of node boxes.
+        title_suffix: Optional suffix appended to figure title (e.g. config details).
+        show_plot: Whether to display the plot interactively.
+        save_path: Optional path to save the figure image.
+    """
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
+    from matplotlib.patches import FancyBboxPatch
+    from matplotlib.lines import Line2D
     from experimaestro import Task, Action, tags
 
     node_info = {}
@@ -267,24 +463,29 @@ def plot_dag(
         tag_str = ", ".join(f"{k}={v}" for k, v in jtags.items())
 
         node_info[jid] = {
-            "name": f"{name} [{jid[:4]}]",
-            "tags": f"({tag_str})" if tag_str else None,
+            "name": name,
+            "hash": f"[{jid[:8]}]",
+            "tags": tag_str if tag_str else None,
             "type": ntype,
         }
 
     # Calculate dynamic figure size based on the layout
-    all_x, all_y = [p[0] for p in pos.values()], [p[1] for p in pos.values()]
+    all_x = [p[0] for p in pos.values()]
+    all_y = [p[1] for p in pos.values()]
     min_x, max_x = min(all_x), max(all_x)
     min_y, max_y = min(all_y), max(all_y)
 
     # Scale factor: 1 unit = 0.8 inches
     scale = 0.8
-    fig_w = max(16, (max_x - min_x + box_w * 2) * scale)
-    fig_h = max(9, (max_y - min_y + box_h * 2) * scale)
+    fig_w = max(10, (max_x - min_x + box_w * 2) * scale)
+    fig_h = max(6, (max_y - min_y + box_h * 2) * scale)
 
     plt.figure(figsize=(fig_w, fig_h))
     ax = plt.gca()
-    plt.title("Experimaestro DAG (Hierarchical Top-Aligned Flow)")
+    title = "Experimaestro DAG (Hierarchical Top-Aligned Flow)"
+    if title_suffix:
+        title += f" - {title_suffix}"
+    plt.title(title)
 
     for u, v in reduced_dag.edges():
         (x1, y1), (x2, y2) = pos[u], pos[v]
@@ -295,11 +496,11 @@ def plot_dag(
             zorder=1,
             arrowprops=dict(
                 arrowstyle="->",
-                color="#cccccc",
-                alpha=0.6,
+                color="black",
+                alpha=1.0,
                 shrinkA=0,
                 shrinkB=0,
-                linewidth=0.8,
+                linewidth=1.5,
             ),
         )
 
@@ -307,22 +508,72 @@ def plot_dag(
     for jid, (x, y) in pos.items():
         info = node_info[jid]
         ax.add_patch(
-            Rectangle(
+            FancyBboxPatch(
                 (x - box_w / 2, y - box_h / 2),
                 box_w,
                 box_h,
+                boxstyle="round,pad=0.03,rounding_size=0.2",
                 facecolor=styles[info["type"]],
-                edgecolor="#888888",
+                edgecolor="#666666",
+                linewidth=2.0,
                 zorder=2,
             )
         )
         if info["tags"]:
-            plt.text(x, y + 0.1, info["name"], ha="center", va="center", fontsize=10, fontweight="bold", zorder=3)
-            plt.text(x, y - 0.15, info["tags"], ha="center", va="center", fontsize=8, color="#666666", zorder=3)
+            plt.text(
+                x,
+                y + 0.25,
+                info["name"],
+                ha="center",
+                va="center",
+                fontsize=10.5,
+                fontweight="bold",
+                color="#111111",
+                zorder=3,
+            )
+            plt.text(
+                x,
+                y + 0.03,
+                info["hash"],
+                ha="center",
+                va="center",
+                fontsize=7.5,
+                color="#777777",
+                zorder=3,
+            )
+            plt.text(
+                x,
+                y - 0.23,
+                info["tags"],
+                ha="center",
+                va="center",
+                fontsize=8.5,
+                fontweight="bold",
+                color="#222222",
+                zorder=3,
+            )
         else:
-            plt.text(x, y, info["name"], ha="center", va="center", fontsize=10, fontweight="bold", zorder=3)
-
-    from matplotlib.lines import Line2D
+            plt.text(
+                x,
+                y + 0.14,
+                info["name"],
+                ha="center",
+                va="center",
+                fontsize=10.5,
+                fontweight="bold",
+                color="#111111",
+                zorder=3,
+            )
+            plt.text(
+                x,
+                y - 0.14,
+                info["hash"],
+                ha="center",
+                va="center",
+                fontsize=7.5,
+                color="#777777",
+                zorder=3,
+            )
 
     plt.legend(
         handles=[
@@ -353,39 +604,94 @@ def plot_dag(
     plt.close()
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.WARNING)
+def resolve_run_dir(
+    workspace_arg: str | Path | None, experiment_id: str, run_id: str | None
+) -> tuple[str, Path] | None:
+    """Find and return (run_id, run_dir) from the workspace.
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--workspace", type=Path, default=Path("~/experiments/mnist_xp").expanduser()
-    )
-    parser.add_argument("--experiment-id", default="MNIST_train_advanced")
-    parser.add_argument("--run-id", default=None)
-    parser.add_argument("--tasks-only", action="store_true")
-    parser.add_argument("--plot", action="store_true", default=False, help="Display the GUI plot with matplotlib")
-    parser.add_argument("--save-plot", type=Path, default=None, help="Save DAG plot to an image file (e.g. dag.png)")
-    args = parser.parse_args()
-
-    if args.workspace.exists() and (args.workspace / "experiments").exists():
-        workspace = args.workspace
+    Uses the explicitly specified workspace if provided (by ID or path).
+    Otherwise, auto-selects the default workspace just as in real experiments
+    using Experimaestro's workspace triggers matching the experiment ID.
+    """
+    if workspace_arg:
+        ws_id = str(workspace_arg)
+        if get_workspace(ws_id) is not None:
+            ws_env = find_workspace(workspace=ws_id, experiment_id=experiment_id)
+        else:
+            ws_path = Path(workspace_arg).expanduser()
+            ws_env = find_workspace(workdir=ws_path, experiment_id=experiment_id)
     else:
-        workspace = find_workspace().path
+        ws_env = find_workspace(experiment_id=experiment_id)
 
-    logging.info(f"Using workspace: {workspace}")
-    
+    workspace = ws_env.path
+    experiments_dir = workspace / "experiments"
+    if not experiments_dir.exists():
+        logging.error("No 'experiments' directory found in workspace '%s'.", workspace)
+        return None
+
+    available_xps = sorted(
+        [p.name for p in experiments_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    )
+    exp_dir = experiments_dir / experiment_id
+    if not exp_dir.exists():
+        xps_str = ", ".join(f"'{x}'" for x in available_xps) if available_xps else "(none)"
+        logging.error(
+            "Experiment '%s' not found in workspace '%s'. Available experiments: %s",
+            experiment_id,
+            workspace,
+            xps_str,
+        )
+        return None
+
+    available_runs = sorted(
+        [p.name for p in exp_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    )
+    if not available_runs:
+        logging.error(
+            "Experiment '%s' in workspace '%s' has no recorded runs.",
+            experiment_id,
+            workspace,
+        )
+        return None
+
     provider = WorkspaceStateProvider(workspace)
-    try:
-        run_id = args.run_id or provider.get_current_run(args.experiment_id)
-        if run_id is None:
-            raise FileNotFoundError(f"No run found for experiment '{args.experiment_id}' in workspace {workspace}")
-        run_dir = provider.workspace_path / "experiments" / args.experiment_id / run_id
-    except Exception as e:
-        print(f"Error: {e}")  # noqa: T201
-        return
+    if run_id:
+        if run_id not in available_runs:
+            runs_str = ", ".join(f"'{r}'" for r in available_runs)
+            logging.error(
+                "Run '%s' not found for experiment '%s' in workspace '%s'. Available runs: %s",
+                run_id,
+                experiment_id,
+                workspace,
+                runs_str,
+            )
+            return None
+        resolved_run_id = run_id
+    else:
+        try:
+            current_run = provider.get_current_run(experiment_id)
+        except Exception:
+            current_run = None
+        resolved_run_id = current_run or available_runs[-1]
+
+    run_dir = exp_dir / resolved_run_id
+    if not run_dir.exists():
+        logging.error("Run directory does not exist: %s", run_dir)
+        return None
+
+    return resolved_run_id, run_dir
 
 
-    with (run_dir / "objects.jsonl").open() as f:
+def load_run_graph(
+    run_dir: Path,
+) -> tuple[dict, dict[str, list[str]], dict[str, dict]] | None:
+    """Load objects.jsonl and jobs.jsonl into full_jobs, dependencies, and job_tags_dict."""
+    objects_file = run_dir / "objects.jsonl"
+    if not objects_file.exists():
+        logging.error("Objects record not found: %s", objects_file)
+        return None
+
+    with objects_file.open() as f:
         all_definitions = [json.loads(line) for line in f if line.strip()]
     all_configs_dict = ConfigInformation.load_objects(
         all_definitions, as_instance=False
@@ -408,36 +714,6 @@ def main() -> None:
     }
     dependencies = {k: v for k, v in dependencies.items() if v}
 
-    if args.tasks_only:
-        from experimaestro import Task, Action
-
-        is_task = {jid: isinstance(c, (Task, Action)) for jid, c in full_jobs.items()}
-        task_deps = {}
-        for jid in full_jobs:
-            if not is_task[jid]:
-                continue
-            tdeps, q, processed = set(), list(dependencies.get(jid, [])), set()
-            while q:
-                d = q.pop()
-                if d in processed:
-                    continue
-                processed.add(d)
-                if is_task.get(d):
-                    tdeps.add(d)
-                else:
-                    q.extend(dependencies.get(d, []))
-            task_deps[jid] = list(tdeps)
-        full_jobs = {jid: c for jid, c in full_jobs.items() if is_task[jid]}
-        dependencies = task_deps
-
-    dependents = {}
-    for jid, deps in dependencies.items():
-        for d in deps:
-            dependents.setdefault(d, []).append(jid)
-
-    depths, pos, reduced_dag = compute_dag_layout(full_jobs, dependencies, dependents)
-
-    # Load tags from jobs.jsonl if available
     job_tags_dict = {}
     jobs_jsonl = run_dir / "jobs.jsonl"
     if jobs_jsonl.exists():
@@ -447,6 +723,182 @@ def main() -> None:
                     job_data = json.loads(line)
                     if "job_id" in job_data and "tags" in job_data:
                         job_tags_dict[job_data["job_id"]] = job_data["tags"]
+
+    return full_jobs, dependencies, job_tags_dict
+
+
+def resolve_target_config(
+    args: argparse.Namespace,
+    configs: list[dict],
+) -> tuple[dict | None, str]:
+    """Resolve target configuration tags and title suffix from CLI options."""
+    if args.config_index is not None:
+        if not (0 <= args.config_index < len(configs)):
+            logging.error(
+                "Config index %d out of range [0..%d]. Use --list-configs to see options.",
+                args.config_index,
+                len(configs) - 1,
+            )
+            return None, ""
+        target_tags = configs[args.config_index]
+        return target_tags, ", ".join(f"{k}={v}" for k, v in sorted(target_tags.items()))
+
+    if args.filter:
+        filter_tags = parse_filter_arg(args.filter)
+        if args.single_config:
+            for cfg_cand in configs:
+                if all(cfg_cand.get(k) == v for k, v in filter_tags.items()):
+                    return cfg_cand, ", ".join(f"{k}={v}" for k, v in sorted(cfg_cand.items()))
+            logging.error("No configuration matched filter: %s", args.filter)
+            return None, ""
+        return filter_tags, f"Filter: {args.filter}"
+
+    if args.single_config:
+        if not configs:
+            logging.error("No configurations found to filter.")
+            return None, ""
+        return configs[0], ", ".join(f"{k}={v}" for k, v in sorted(configs[0].items()))
+
+    return None, ""
+
+
+def filter_tasks_only(
+    full_jobs: dict, dependencies: dict[str, list[str]]
+) -> tuple[dict, dict[str, list[str]]]:
+    """Filter the graph to include only Task and Action nodes."""
+    from experimaestro import Task, Action
+
+    is_task = {jid: isinstance(c, (Task, Action)) for jid, c in full_jobs.items()}
+    task_deps = {}
+    for jid in full_jobs:
+        if not is_task[jid]:
+            continue
+        tdeps, q, processed = set(), list(dependencies.get(jid, [])), set()
+        while q:
+            d = q.pop()
+            if d in processed:
+                continue
+            processed.add(d)
+            if is_task.get(d):
+                tdeps.add(d)
+            else:
+                q.extend(dependencies.get(d, []))
+        task_deps[jid] = list(tdeps)
+    filtered_jobs = {jid: c for jid, c in full_jobs.items() if is_task[jid]}
+    return filtered_jobs, task_deps
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--workspace",
+        type=str,
+        default=None,
+        help="Workspace ID or directory path (default: auto-detected via find_workspace).",
+    )
+    parser.add_argument(
+        "--experiment-id",
+        default="MNIST_train_advanced",
+        help="Experiment identifier (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Specific run timestamp ID (default: most recent run).",
+    )
+    parser.add_argument(
+        "--tasks-only",
+        action="store_true",
+        help="Only display Task and Action nodes, skipping static config nodes.",
+    )
+    parser.add_argument(
+        "--no-plot",
+        action="store_false",
+        dest="plot",
+        default=True,
+        help="Skip the matplotlib interactive plot and only output the text tree.",
+    )
+    parser.add_argument(
+        "--save-plot",
+        type=Path,
+        default=None,
+        help="Path where the DAG plot figure should be saved (e.g. dag.png).",
+    )
+    parser.add_argument(
+        "--list-configs",
+        action="store_true",
+        help="List all unique configuration parameter sets found in the experiment and exit.",
+    )
+    parser.add_argument(
+        "--single-config",
+        action="store_true",
+        help="Render the DAG for a single grid trial configuration (defaults to config index 0).",
+    )
+    parser.add_argument(
+        "-c",
+        "--config-index",
+        type=int,
+        default=None,
+        help="Index of the configuration to display (see --list-configs). Implies --single-config.",
+    )
+    parser.add_argument(
+        "--filter",
+        default=None,
+        help="Filter the DAG by tag values (e.g. 'lr=0.001,kernel_size=3').",
+    )
+    parser.add_argument(
+        "--include-actions",
+        action="store_true",
+        help="Include downstream Action and EvaluatedModel nodes when filtering by configuration.",
+    )
+    args = parser.parse_args()
+
+    run_info = resolve_run_dir(args.workspace, args.experiment_id, args.run_id)
+    if run_info is None:
+        return
+    run_id, run_dir = run_info
+
+    if args.list_configs:
+        configs = get_experiment_configs(run_dir)
+        if not configs:
+            print(f"No configuration tags found for experiment '{args.experiment_id}' ({run_id}).")  # noqa: T201
+            return
+        print(f"Available configurations in experiment '{args.experiment_id}' (run {run_id}):")  # noqa: T201
+        for idx, cfg_dict in enumerate(configs):
+            cfg_str = ", ".join(f"{k}={v}" for k, v in sorted(cfg_dict.items()))
+            print(f"  [{idx}] {cfg_str}")  # noqa: T201
+        return
+
+    graph_data = load_run_graph(run_dir)
+    if graph_data is None:
+        return
+    full_jobs, dependencies, job_tags_dict = graph_data
+
+    title_suffix = ""
+    if args.single_config or args.config_index is not None or args.filter:
+        configs = get_experiment_configs(run_dir)
+        target_tags, title_suffix = resolve_target_config(args, configs)
+        if target_tags is None:
+            return
+        full_jobs, dependencies = filter_subgraph_by_config(
+            full_jobs,
+            dependencies,
+            job_tags_dict,
+            target_tags,
+            include_actions=args.include_actions,
+        )
+
+    if args.tasks_only:
+        full_jobs, dependencies = filter_tasks_only(full_jobs, dependencies)
+
+    dependents: dict[str, list[str]] = {}
+    for jid, deps in dependencies.items():
+        for d in deps:
+            dependents.setdefault(d, []).append(jid)
+
+    depths, pos, reduced_dag = compute_dag_layout(full_jobs, dependencies, dependents)
 
     tree_roots = [jid for jid in full_jobs if not dependencies.get(jid)]
     print_robust_tree(
@@ -466,6 +918,7 @@ def main() -> None:
             job_tags_dict,
             pos,
             reduced_dag,
+            title_suffix=title_suffix,
             show_plot=args.plot,
             save_path=args.save_plot,
         )
