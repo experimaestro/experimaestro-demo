@@ -7,6 +7,7 @@ import pytest
 # Ensure demo directory is on sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from experimaestro.settings import SSHSettings, WorkspaceSettings
 from inspect_params import (
     NodeKind,
     NodeDetailPane,
@@ -14,6 +15,7 @@ from inspect_params import (
     ParamsInspectorApp,
     ParamsTree,
     ResolvedPath,
+    fetch_remote_params,
     find_params_file,
     resolve_workspace,
 )
@@ -280,3 +282,177 @@ def test_find_params_file_not_found():
         FileNotFoundError, match="No job matching 'nonexistent_job_prefix_xyz' found"
     ):
         find_params_file("nonexistent_job_prefix_xyz", workspace="cross_encoders")
+
+
+def make_mock_remote_workspace() -> WorkspaceSettings:
+    return WorkspaceSettings(
+        id="mock-remote-ws",
+        path=Path("/remote/workspace/path"),
+        ssh=SSHSettings(host="remote-host", options=["-o", "StrictHostKeyChecking=no"]),
+    )
+
+
+def test_fetch_remote_params_success(tmp_path, monkeypatch):
+    """Verify remote params retrieval, SSH querying, and state provider sync."""
+    ws = make_mock_remote_workspace()
+    target_job = "ee76fb8f"
+    remote_matched_path = f"{ws._raw_path}/jobs/my_task/{target_job}12345/params.json"
+
+    # 1. Mock subprocess.run for remote SSH glob
+    def mock_subprocess_run(cmd, capture_output, text):
+        assert cmd[0] == "ssh"
+        assert ws.ssh.host in cmd
+
+        class Result:
+            returncode = 0
+            stdout = f"{remote_matched_path}\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    # 2. Mock SSHStateProviderClient
+    synced_job_dir = tmp_path / "synced" / "jobs" / "my_task" / f"{target_job}12345"
+    synced_job_dir.mkdir(parents=True)
+    fake_params = synced_job_dir / "params.json"
+    fake_params.write_text('{"workspace": "/remote/workspace/path"}', encoding="utf-8")
+
+    class MockClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.connected = False
+            self.disconnected = False
+
+        def connect(self, timeout=20.0):
+            self.connected = True
+
+        def disconnect(self):
+            self.disconnected = True
+
+        def sync_path(self, rel_path, include=None):
+            assert rel_path == f"jobs/my_task/{target_job}12345"
+            assert include == ["params.json"]
+            return synced_job_dir
+
+    monkeypatch.setattr(
+        "experimaestro.scheduler.remote.client.SSHStateProviderClient", MockClient
+    )
+
+    result_path = fetch_remote_params(ws, target_job)
+    assert result_path == fake_params
+    assert result_path.is_file()
+
+
+def test_fetch_remote_params_multiple_matches(tmp_path, monkeypatch, capsys):
+    """Verify warning printed and first match taken when multiple remote jobs match."""
+    ws = make_mock_remote_workspace()
+    matches = [
+        f"{ws._raw_path}/jobs/task_a/1111_job/params.json",
+        f"{ws._raw_path}/jobs/task_b/1112_job/params.json",
+    ]
+
+    def mock_subprocess_run(cmd, capture_output, text):
+        class Result:
+            returncode = 0
+            stdout = "\n".join(matches) + "\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    synced_dir = tmp_path / "synced"
+    synced_dir.mkdir(parents=True)
+    (synced_dir / "params.json").write_text("{}", encoding="utf-8")
+
+    class MockClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def connect(self, timeout=20.0):
+            pass
+
+        def disconnect(self):
+            pass
+
+        def sync_path(self, rel_path, include=None):
+            assert rel_path == "jobs/task_a/1111_job"
+            return synced_dir
+
+    monkeypatch.setattr(
+        "experimaestro.scheduler.remote.client.SSHStateProviderClient", MockClient
+    )
+
+    result_path = fetch_remote_params(ws, "111")
+    captured = capsys.readouterr()
+    assert "Warning: Multiple jobs (2) matched '111'" in captured.err
+    assert matches[0] in captured.err
+    assert result_path == synced_dir / "params.json"
+
+
+def test_fetch_remote_params_not_found(monkeypatch):
+    """Verify FileNotFoundError when no remote job matches."""
+    ws = make_mock_remote_workspace()
+
+    def mock_subprocess_run(cmd, capture_output, text):
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    with pytest.raises(
+        FileNotFoundError,
+        match="No job matching 'nonexistent' found in remote workspace 'mock-remote-ws'",
+    ):
+        fetch_remote_params(ws, "nonexistent")
+
+
+def test_fetch_remote_params_ssh_error(monkeypatch):
+    """Verify RuntimeError when SSH command fails."""
+    ws = make_mock_remote_workspace()
+
+    def mock_subprocess_run(cmd, capture_output, text):
+        class Result:
+            returncode = 255
+            stdout = ""
+            stderr = "Host unreachable"
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to query remote workspace 'mock-remote-ws' via SSH: Host unreachable",
+    ):
+        fetch_remote_params(ws, "some_job")
+
+
+def test_fetch_remote_params_empty_target():
+    """Verify FileNotFoundError when target is empty or root."""
+    ws = make_mock_remote_workspace()
+    with pytest.raises(FileNotFoundError, match="Please specify a job ID or path"):
+        fetch_remote_params(ws, "")
+
+    with pytest.raises(FileNotFoundError, match="Please specify a job ID or path"):
+        fetch_remote_params(ws, ".")
+
+
+def test_find_params_file_remote_dispatch(tmp_path, monkeypatch):
+    """Verify that find_params_file dispatches to fetch_remote_params for remote workspace."""
+    ws = make_mock_remote_workspace()
+    expected_path = tmp_path / "params.json"
+
+    monkeypatch.setattr("inspect_params.resolve_workspace", lambda w: ws)
+    monkeypatch.setattr(
+        "inspect_params.fetch_remote_params",
+        lambda workspace, target: expected_path,
+    )
+
+    result = find_params_file("my_remote_job", workspace="mock-remote-ws")
+    assert result == expected_path

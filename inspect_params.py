@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import atexit
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -19,8 +20,9 @@ import json
 import logging
 import os
 from pathlib import Path
+import subprocess
 import sys
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pyperclip  # type: ignore[import-untyped]
 from rich.console import Group
@@ -919,7 +921,9 @@ class ParamsInspectorApp(App):
         self.exit()
 
 
-def resolve_workspace(workspace: Optional[str] = None) -> Path:
+def resolve_workspace(
+    workspace: Optional[str] = None,
+) -> Union[Path, Any]:
     """Resolve workspace directory from an explicit name/path or Experimaestro default."""
     if workspace:
         p = Path(workspace).expanduser().resolve()
@@ -930,8 +934,11 @@ def resolve_workspace(workspace: Optional[str] = None) -> Path:
             from experimaestro.settings import find_workspace
 
             ws_env = find_workspace(workspace=workspace)
-            if ws_env and ws_env.path:
-                return Path(ws_env.path).resolve()
+            if ws_env:
+                if ws_env.is_remote:
+                    return ws_env
+                if ws_env.path:
+                    return Path(ws_env.path).resolve()
         except Exception:
             pass
         raise FileNotFoundError(
@@ -943,8 +950,11 @@ def resolve_workspace(workspace: Optional[str] = None) -> Path:
         from experimaestro.settings import find_workspace
 
         ws_env = find_workspace()
-        if ws_env and ws_env.path:
-            return Path(ws_env.path).resolve()
+        if ws_env:
+            if ws_env.is_remote:
+                return ws_env
+            if ws_env.path:
+                return Path(ws_env.path).resolve()
     except Exception:
         pass
 
@@ -964,6 +974,84 @@ def resolve_workspace(workspace: Optional[str] = None) -> Path:
     raise FileNotFoundError(
         "No workspace specified and default workspace could not be determined."
     )
+
+
+def fetch_remote_params(ws: Any, target: str) -> Path:
+    """Fetch params.json from a remote workspace using SSH and Remote State Provider.
+
+    The file is synchronized into a temporary directory managed by the
+    state provider and automatically cleaned up upon program exit.
+    """
+    clean_target = (
+        target.strip("/")
+        .removesuffix("/params.json")
+        .removesuffix("params.json")
+        .strip("/")
+    )
+    if not clean_target or clean_target == ".":
+        raise FileNotFoundError(
+            f"Please specify a job ID or path for remote workspace '{ws.id}'."
+        )
+
+    pattern = (
+        f"jobs/{clean_target}*/params.json"
+        if "/" in clean_target
+        else f"jobs/*/{clean_target}*/params.json"
+    )
+
+    logger.info("Querying remote workspace %s via SSH for matching jobs...", ws.id)
+    py_cmd = f"import glob; [print(p) for p in glob.glob('{ws._raw_path}/{pattern}')]"
+    cmd = ["ssh", *(ws.ssh.options or []), ws.ssh.host, f"python3 -c {py_cmd!r}"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        err = res.stderr.strip() or res.stdout.strip()
+        raise RuntimeError(f"Failed to query remote workspace '{ws.id}' via SSH: {err}")
+
+    matches = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    if not matches:
+        raise FileNotFoundError(
+            f"No job matching '{clean_target}' found in remote workspace '{ws.id}' ({ws._raw_path})"
+        )
+
+    if len(matches) > 1:
+        print(
+            f"Warning: Multiple jobs ({len(matches)}) matched '{clean_target}'. "
+            f"Using the first match: {matches[0]}",
+            file=sys.stderr,
+        )
+
+    remote_params_path = matches[0]
+    rel_path = remote_params_path[len(ws._raw_path) :].lstrip("/")
+    rel_dir = str(Path(rel_path).parent)
+
+    logger.info("Synchronizing %s from %s into session temp dir...", rel_path, ws.id)
+    from experimaestro.scheduler.remote.client import SSHStateProviderClient
+
+    client = SSHStateProviderClient(
+        host=ws.ssh.host,
+        remote_workspace=ws._raw_path,
+        ssh_options=ws.ssh.options or None,
+        remote_xpm_path=ws.ssh.xpm_path or "experimaestro",
+        remote_shell_init=ws.ssh.shell_init,
+        uv_offline=ws.ssh.uv_offline,
+        remote_python=ws.ssh.python,
+    )
+    client.connect(timeout=30.0)
+    atexit.register(client.disconnect)
+
+    synced_dir = client.sync_path(rel_dir, include=["params.json"])
+    if not synced_dir:
+        raise FileNotFoundError(
+            f"Failed to synchronize {rel_path} from remote workspace '{ws.id}'."
+        )
+
+    local_params = synced_dir / "params.json"
+    if not local_params.exists():
+        raise FileNotFoundError(
+            f"params.json not found in synced directory {synced_dir}."
+        )
+
+    return local_params
 
 
 def find_params_file(
@@ -995,7 +1083,13 @@ def find_params_file(
                 return cand.resolve()
 
     # 3. Otherwise fall back to workspace job discovery
-    ws_dir = resolve_workspace(workspace)
+    ws_or_path = resolve_workspace(workspace)
+    from experimaestro.settings import WorkspaceSettings
+
+    if isinstance(ws_or_path, WorkspaceSettings) and ws_or_path.is_remote:
+        return fetch_remote_params(ws_or_path, raw)
+
+    ws_dir = ws_or_path
     clean_target = (
         raw.strip("/")
         .removesuffix("/params.json")
