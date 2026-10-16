@@ -798,10 +798,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       if (currentConfigIdx !== "all") {
         const targetConfig = RAW_GRAPH.configs[parseInt(currentConfigIdx, 10)];
         if (targetConfig) {
-          // Find matching job nodes
+          // Find matching job nodes (tasks matching targetConfig, or configs whose tags match a subset of targetConfig)
           const matching = nodes.filter(n => {
             const tags = n.tags || {};
-            return Object.entries(targetConfig).every(([k, v]) => tags[k] == v);
+            const tagKeys = Object.keys(tags);
+            if (tagKeys.length === 0) return false;
+            return tagKeys.every(k => targetConfig[k] == tags[k]);
           });
           const selected = new Set(matching.map(n => n.id));
           const stack = [...matching.map(n => n.id)];
@@ -1388,6 +1390,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       });
       if (!succHtml) succHtml = `<div style="color:#94a3b8;font-style:italic;font-size:12px;">No downstream dependents</div>`;
 
+      const jobPath = node.path || node.locator || "";
+      const displayPath = node.display_path || (jobPath ? '.../' + (node.task_id || node.name) + '/' + node.id.substring(0, 20) + '...' : '');
+
       body.innerHTML = `
         <div>
           <div class="drawer-section-title">Overview</div>
@@ -1396,7 +1401,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <tr><td class="key">Task ID</td><td class="val">${node.task_id || "—"}</td></tr>
             <tr><td class="key">Type</td><td class="val">${node.type}</td></tr>
             <tr><td class="key">Status</td><td class="val"><strong>${node.status}</strong></td></tr>
-            ${node.locator ? `<tr><td class="key">Locator</td><td class="val"><span class="node-hash" onclick="copyText('${node.locator}', 'locator')">${node.locator} 📋</span></td></tr>` : ''}
+            ${jobPath ? `<tr><td class="key">Path</td><td class="val"><span class="node-hash" title="${jobPath}" onclick="copyText('${jobPath.replace(/'/g, "\\'")}', 'path')">${displayPath} 📋</span></td></tr>` : ''}
           </table>
         </div>
 

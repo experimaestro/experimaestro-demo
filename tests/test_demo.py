@@ -392,5 +392,124 @@ def test_get_experiment_configs_detection_logging(tmp_path, caplog):
         assert "hidden_dim, lr" in caplog.text
 
 
+def test_extract_config_tags_and_cnn_display():
+    """Verify extract_config_tags extracts hyperparameter tags from Config objects."""
+    from mnist_xp.learn import CNN
+    from mnist_xp_advanced.xpm_dag import extract_config_tags
+
+    cnn = CNN.C(hidden_dim=32, kernel_size=3, n_layers=2)
+
+    # 1. With grid_keys: filters to grid dimensions
+    tags_filtered = extract_config_tags(cnn, {"hidden_dim", "kernel_size"})
+    assert tags_filtered == {"hidden_dim": 32, "kernel_size": 3}
+
+    # 2. Without grid_keys: returns all primitive scalar attributes
+    tags_all = extract_config_tags(cnn)
+    assert tags_all == {"hidden_dim": 32, "kernel_size": 3, "n_layers": 2}
+
+    # 3. None or non-config object
+    assert extract_config_tags(None) == {}
+    assert extract_config_tags("string") == {}
+
+
+def test_build_dag_json_path_display_and_cnn_tags(tmp_path):
+    """Verify build_dag_json populates path, display_path, and CNN tags."""
+    import json
+    from experimaestro import Task
+    from mnist_xp.learn import CNN
+    from mnist_xp_advanced.xpm_dag import build_dag_json
+
+    class DummyTask(Task):
+        pass
+
+    cnn = CNN.C(hidden_dim=64, kernel_size=5, n_layers=1)
+    task = DummyTask()
+
+    cnn_id = "cnn_" + "a" * 60
+    task_id = "task_" + "b" * 60
+
+    full_jobs = {cnn_id: cnn, task_id: task}
+    dependencies = {task_id: [cnn_id]}
+    job_tags_dict = {task_id: {"lr": 0.01, "hidden_dim": 64}}
+
+    # Create run_dir structure: <workspace>/experiments/<exp_id>/<run_id>
+    workspace = tmp_path / "my_workspace"
+    run_dir = workspace / "experiments" / "MNIST_train_advanced" / "20261016_120000"
+    run_dir.mkdir(parents=True)
+
+    # Write jobs.jsonl so task_id and configs can be read
+    jobs_file = run_dir / "jobs.jsonl"
+    with jobs_file.open("w") as f:
+        f.write(
+            json.dumps(
+                {
+                    "job_id": task_id,
+                    "task_id": "mnist_xp.learn.learn",
+                    "tags": {"lr": 0.01, "hidden_dim": 64},
+                }
+            )
+            + "\n"
+        )
+
+    dag_json = build_dag_json(
+        full_jobs,
+        dependencies,
+        job_tags_dict,
+        run_dir=run_dir,
+        workspace=str(workspace),
+    )
+
+    nodes_by_id = {n["id"]: n for n in dag_json["nodes"]}
+    task_node = nodes_by_id[task_id]
+    cnn_node = nodes_by_id[cnn_id]
+
+    # Verify task path and display_path
+    expected_full_path = str(workspace / "jobs" / "mnist_xp.learn.learn" / task_id)
+    assert task_node["path"] == expected_full_path
+    assert task_node["locator"] == expected_full_path
+    assert task_node["display_path"] == f".../mnist_xp.learn.learn/{task_id[:20]}..."
+
+    # Verify CNN node tags extracted matching grid_keys (hidden_dim)
+    assert cnn_node["tags"] == {"hidden_dim": 64}
+    assert cnn_node["path"] == ""
+    assert cnn_node["display_path"] == ""
+
+
+def test_web_dag_renders_path_in_drawer(tmp_path):
+    """Verify generated HTML drawer contains Path row and display_path."""
+    from mnist_xp_advanced.xpm_web_dag import generate_dag_html
+
+    dag_json = {
+        "experiment_id": "exp_test",
+        "run_id": "run_test",
+        "workspace": "/tmp/workspace",
+        "nodes": [
+            {
+                "id": "job_12345678901234567890",
+                "name": "Learn",
+                "task_id": "mnist_xp.learn.learn",
+                "type": "task",
+                "status": "done",
+                "tags": {"lr": 0.001, "hidden_dim": 32},
+                "path": "/tmp/workspace/jobs/mnist_xp.learn.learn/job_12345678901234567890",
+                "display_path": ".../mnist_xp.learn.learn/job_1234567890123456...",
+                "locator": "/tmp/workspace/jobs/mnist_xp.learn.learn/job_12345678901234567890",
+                "depends_on": [],
+                "depth": 0,
+                "x": 0.0,
+                "y": 0.0,
+            }
+        ],
+        "edges": [],
+        "configs": [{"lr": 0.001, "hidden_dim": 32}],
+    }
+
+    html = generate_dag_html(dag_json)
+    assert '<tr><td class="key">Path</td>' in html
+    assert "copyText" in html
+    assert "node.display_path" in html
+
+
+
 
 

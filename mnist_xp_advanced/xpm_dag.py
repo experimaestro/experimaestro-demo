@@ -107,6 +107,34 @@ def resolve_run_dir(
     return resolved_run_id, run_dir
 
 
+def extract_config_tags(
+    config: Any, grid_keys: set[str] | None = None
+) -> dict[str, Any]:
+    """Extract hyperparameter tags from a Config node's xpmvalues.
+
+    If grid_keys is provided, extracts parameters matching grid_keys.
+    Otherwise, extracts all scalar primitive parameters (int, float, str, bool).
+    """
+    if config is None:
+        return {}
+    xpm = getattr(config, "__xpm__", None)
+    if xpm is None or not hasattr(xpm, "xpmvalues"):
+        return {}
+
+    raw_params: dict[str, Any] = {}
+    try:
+        for param, val in xpm.xpmvalues():
+            p_name = getattr(param, "name", str(param))
+            if isinstance(val, (int, float, str, bool)) and not p_name.startswith("_"):
+                raw_params[p_name] = val
+    except Exception:
+        return {}
+
+    if grid_keys:
+        return {k: v for k, v in raw_params.items() if k in grid_keys}
+    return raw_params
+
+
 def load_run_graph(
     run_dir: Path,
 ) -> tuple[dict, dict[str, list[str]], dict[str, dict]] | None:
@@ -140,6 +168,7 @@ def load_run_graph(
     dependencies = {k: v for k, v in dependencies.items() if v}
 
     job_tags_dict = {}
+    grid_keys: set[str] = set()
     jobs_jsonl = run_dir / "jobs.jsonl"
     if jobs_jsonl.exists():
         with jobs_jsonl.open() as f:
@@ -147,7 +176,17 @@ def load_run_graph(
                 if line.strip():
                     job_data = json.loads(line)
                     if "job_id" in job_data and "tags" in job_data:
-                        job_tags_dict[job_data["job_id"]] = job_data["tags"]
+                        jtags = job_data["tags"] or {}
+                        job_tags_dict[job_data["job_id"]] = jtags
+                        if jtags:
+                            grid_keys.update(jtags.keys())
+
+    # Populate tags for Config nodes (e.g. CNN architecture params)
+    for jid, config in full_jobs.items():
+        if jid not in job_tags_dict and config:
+            cfg_tags = extract_config_tags(config, grid_keys if grid_keys else None)
+            if cfg_tags:
+                job_tags_dict[jid] = cfg_tags
 
     return full_jobs, dependencies, job_tags_dict
 
@@ -515,10 +554,15 @@ def build_dag_json(
                         except json.JSONDecodeError:
                             pass
 
+    workspace_val = str(workspace) if workspace else ""
+    if not workspace_val and run_dir and len(run_dir.parents) >= 3:
+        workspace_val = str(run_dir.parents[2])
+
     status_data = load_run_status(run_dir) if run_dir else {}
     job_states: dict[str, str] = status_data.get("job_states", {})
 
     configs = get_experiment_configs(run_dir) if run_dir else []
+    grid_keys = set().union(*(c.keys() for c in configs)) if configs else None
 
     # Compute deterministic layout matching flat plot
     dependents: dict[str, list[str]] = {}
@@ -550,10 +594,20 @@ def build_dag_json(
                 jtags = dict(tags(config))
             except Exception:
                 jtags = {}
+        if not jtags and config:
+            jtags = extract_config_tags(config, grid_keys)
         deps = dependencies.get(jid, [])
 
         task_id = job_task_ids.get(jid, name)
-        locator = f"jobs/{jid}" if (is_task or is_action) else ""
+        if is_task or is_action:
+            if workspace_val:
+                full_path = str(Path(workspace_val) / "jobs" / task_id / jid)
+            else:
+                full_path = f"jobs/{task_id}/{jid}"
+            display_path = f".../{task_id}/{jid[:20]}..."
+        else:
+            full_path = ""
+            display_path = ""
 
         coord = pos.get(jid, (0.0, 0.0))
         depth_val = depths.get(jid, 0)
@@ -573,7 +627,9 @@ def build_dag_json(
             # Dual dependency keys
             "depends_on": deps,
             "dependsOn": deps,
-            "locator": locator,
+            "path": full_path,
+            "display_path": display_path,
+            "locator": full_path,
             "timestamp": job_timestamps.get(jid),
             # Layout coordinates matching flat plot
             "depth": depth_val,
@@ -591,7 +647,7 @@ def build_dag_json(
     return {
         "experiment_id": experiment_id,
         "run_id": run_id,
-        "workspace": str(workspace),
+        "workspace": workspace_val,
         "nodes": nodes,
         "edges": edges,
         "configs": configs,

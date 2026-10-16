@@ -64,10 +64,11 @@ def run_one_config(config: Configuration, tags: dict, gpulauncher, ds_mnist, tb)
         n_layers=config.n_layers,
     )
 
-    # Tag the model with the specific hyperparameter values for this run
-    # this allows to track the hyperparameters used for each run in the experiment logs and results.
+    # Tag the model with architecture hyperparameters
+    model_param_names = {"hidden_dim", "kernel_size", "n_layers"}
     for tag_name, tag_value in tags.items():
-        model.tag(tag_name, tag_value)
+        if tag_name in model_param_names:
+            model.tag(tag_name, tag_value)
 
     # Build the learning task
     learn_task = (
@@ -75,13 +76,18 @@ def run_one_config(config: Configuration, tags: dict, gpulauncher, ds_mnist, tb)
             # Defines the data and model used for training
             model=model,
             data=ds_mnist.train,
-            # Training params are not tagged
             epochs=config.epochs,
             n_val=config.n_val,
             lr=config.lr,
             batch_size=config.batch_size,
         )
     )
+
+    # Tag learning task with training hyperparameters (inherits model tags automatically)
+    training_param_names = {"lr", "epochs", "batch_size"}
+    for tag_name, tag_value in tags.items():
+        if tag_name in training_param_names:
+            learn_task.tag(tag_name, tag_value)
 
     # Submit the task
     loader = learn_task.submit(launcher=gpulauncher)
