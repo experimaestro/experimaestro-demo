@@ -86,6 +86,12 @@ For SLURM clusters, the equivalent is `experimaestro launchers slurm generate` (
 
 Lets now have a look at how an experimaestro project can be structured, you can also choose to begin by running the experiment by jumping directly to [running the experiment](#running-the-experiment), and come back later for details.
 
+The diagram below illustrates the task dependency graph (DAG) of the MNIST experiment:
+
+![Experiment DAG](img/DAG_example.png)
+
+> 💡 **Side note:** *You can generate this graph yourself using `experimaestro dag` ([Docs](cli.md#experiment-dag-visualization-experimaestro-dag))*
+
 We will now have a closer look at the key files of this demo repository. In short, in the `mnist_xp` folder we have
 
 - `learn.py` contains the core code, here a CNN configuration and the learning and evaluation tasks
@@ -387,6 +393,13 @@ Experimaestro also features a tool for monitoring all your tasks and experiments
 You can run a TUI-based monitor in the terminal with:
 ```bash
 uv run experimaestro experiments monitor --console
+```
+
+4.  **Visualize the DAG:**
+
+You can visualize the task dependency graph in your browser:
+```bash
+uv run experimaestro dag MNIST_train
 ```
 
 

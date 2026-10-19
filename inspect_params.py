@@ -20,8 +20,11 @@ import json
 import logging
 import os
 from pathlib import Path
+import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pyperclip  # type: ignore[import-untyped]
@@ -474,6 +477,8 @@ class ParamsTree(Tree[NodeData]):
         self.filter_query: str = ""
         self.show_absolute_paths: bool = False
         self.primary_nodes: Dict[int, TreeNode[NodeData]] = {}
+        self.matched_nodes: List[TreeNode[NodeData]] = []
+        self.match_count: int = 0
 
     def on_mount(self) -> None:
         """Configure tree display settings and build initial tree structure."""
@@ -500,10 +505,28 @@ class ParamsTree(Tree[NodeData]):
         self.show_absolute_paths = not self.show_absolute_paths
         self.rebuild()
 
+    def _matches(self, *texts: Any) -> bool:
+        """Check if any of the provided strings contain the active search query."""
+        if not self.filter_query:
+            return False
+        q = self.filter_query
+        return any(isinstance(t, str) and q in t.lower() for t in texts)
+
+    def _apply_highlight(self, text: Text) -> None:
+        """Highlight active search query terms in a Rich Text instance."""
+        if self.filter_query:
+            text.highlight_words(
+                [self.filter_query],
+                style="bold black on #f9e2af",
+                case_sensitive=False,
+            )
+
     def rebuild(self) -> None:
         """Clear and rebuild the entire tree from the underlying graph."""
         self.clear()
         self.primary_nodes.clear()
+        self.matched_nodes.clear()
+        self.match_count = 0
 
         # Metadata header
         meta = self.root.add(
@@ -577,8 +600,28 @@ class ParamsTree(Tree[NodeData]):
                         orphan_container, roid, ancestors=(), seen=seen, label="Object"
                     )
 
-        for c in self.root.children:
-            c.expand()
+        if self.filter_query:
+            if self.match_count == 0:
+                self.root.add_leaf(
+                    Text(
+                        f"❌ No matching parameters or configs for '{self.filter_query}'",
+                        style="dim red",
+                    ),
+                    data=NodeData(NodeKind.METADATA, "No Match"),
+                )
+            else:
+                for n in self.matched_nodes:
+                    if n.children:
+                        n.expand()
+                    curr = n.parent
+                    while curr is not None:
+                        curr.expand()
+                        curr = curr.parent
+                self.move_cursor(self.matched_nodes[0])
+                self.scroll_to_node(self.matched_nodes[0])
+        else:
+            for c in self.root.children:
+                c.expand()
 
     @staticmethod
     def _order_fields(fields: Dict[str, Any]) -> List[Tuple[str, Any]]:
@@ -688,6 +731,12 @@ class ParamsTree(Tree[NodeData]):
         if is_shared:
             txt.append(f"(shared x{len(node.incoming_refs)})", style="italic yellow")
 
+        is_match = self._matches(
+            node.type_name, node.qualified_name, node.identifier, label
+        )
+        if is_match:
+            self._apply_highlight(txt)
+
         tree_node = parent.add(
             txt,
             data=NodeData(
@@ -698,6 +747,9 @@ class ParamsTree(Tree[NodeData]):
             ),
         )
         self.primary_nodes[oid] = tree_node
+        if is_match:
+            self.matched_nodes.append(tree_node)
+            self.match_count += 1
         next_anc = ancestors + (oid,)
 
         # Categorize fields
@@ -780,6 +832,7 @@ class ParamsTree(Tree[NodeData]):
 
         rp = self.graph.resolve_path(v)
         if rp:
+            is_match = self._matches(fn, str(rp.resolved), rp.raw_value)
             txt = Text(f"{fn}: ", style="bold white")
             pstr = (
                 str(rp.resolved)
@@ -796,7 +849,10 @@ class ParamsTree(Tree[NodeData]):
             )
             if not rp.exists:
                 txt.append("[not found]", style="red")
-            parent.add_leaf(
+            if is_match:
+                self._apply_highlight(txt)
+
+            leaf_node = parent.add_leaf(
                 txt,
                 data=NodeData(
                     NodeKind.FIELD_PATH,
@@ -806,33 +862,50 @@ class ParamsTree(Tree[NodeData]):
                     resolved_path=rp,
                 ),
             )
+            if is_match:
+                self.matched_nodes.append(leaf_node)
+                self.match_count += 1
             return
 
         if isinstance(v, (list, dict)) and not (
             isinstance(v, dict) and v.get("type") == "enum"
         ):
+            is_match = self._matches(fn)
             if isinstance(v, list):
                 desc = f"[{len(v)} items]"
+                txt = Text(f"{fn}: ", style="bold white") + Text(desc, style="cyan")
+                if is_match:
+                    self._apply_highlight(txt)
                 cn = parent.add(
-                    Text(f"{fn}: ", style="bold white") + Text(desc, style="cyan"),
+                    txt,
                     data=NodeData(
                         NodeKind.FIELD_COLLECTION, fn, field_name=fn, field_value=v
                     ),
                 )
+                if is_match:
+                    self.matched_nodes.append(cn)
+                    self.match_count += 1
                 for k_idx, val in enumerate(v):
                     self._render_val(cn, f"[{k_idx}]", val, anc, seen)
             else:
                 desc = f"{{{len(v)} entries}}"
+                txt = Text(f"{fn}: ", style="bold white") + Text(desc, style="cyan")
+                if is_match:
+                    self._apply_highlight(txt)
                 cn = parent.add(
-                    Text(f"{fn}: ", style="bold white") + Text(desc, style="cyan"),
+                    txt,
                     data=NodeData(
                         NodeKind.FIELD_COLLECTION, fn, field_name=fn, field_value=v
                     ),
                 )
+                if is_match:
+                    self.matched_nodes.append(cn)
+                    self.match_count += 1
                 for k_key, val in sorted(v.items()):
                     self._render_val(cn, str(k_key), val, anc, seen)
             return
 
+        is_match = self._matches(fn, str(v))
         txt = Text(f"{fn}: ", style="bold white")
         if isinstance(v, dict) and v.get("type") == "enum":
             txt.append(f"{v.get('enum')}.{v.get('value')}", style="bold yellow")
@@ -847,10 +920,16 @@ class ParamsTree(Tree[NodeData]):
         else:
             txt.append(str(v), style="white")
 
-        parent.add_leaf(
+        if is_match:
+            self._apply_highlight(txt)
+
+        leaf_node = parent.add_leaf(
             txt,
             data=NodeData(NodeKind.FIELD_PRIMITIVE, fn, field_name=fn, field_value=v),
         )
+        if is_match:
+            self.matched_nodes.append(leaf_node)
+            self.match_count += 1
 
     @staticmethod
     def _fmt_sz(sz: int) -> str:
@@ -1108,8 +1187,13 @@ class ParamsInspectorApp(App):
     #mode-bar { height: auto; background: #181825; padding: 0 1; border-bottom: solid #313244; }
     .title-badge { padding: 0 1; background: #89b4fa; color: #11111b; text-style: bold; }
     #mode-hints { color: #a6adc8; padding-left: 2; }
-    #search-bar-container { height: auto; background: #313244; padding: 0 1; }
+    #search-bar-container { height: auto; background: #313244; padding: 0 1; align: left middle; }
     #search-bar-container.hidden { display: none; }
+    #search-input { width: 1fr; }
+    #search-input.not-found { color: #f38ba8; border: tall #f38ba8; }
+    #search-status { padding: 0 1; width: auto; height: 100%; content-align: center middle; }
+    #search-status.not-found { color: #f38ba8; text-style: bold; }
+    #search-status.matched { color: #a6e3a1; text-style: bold; }
     #split-container { width: 100%; height: 1fr; }
     #tree-container { width: 60%; height: 100%; border-right: solid #313244; }
     ParamsTree { width: 100%; height: 100%; background: #1e1e2e; }
@@ -1152,8 +1236,9 @@ class ParamsInspectorApp(App):
                 " [g] Group  ·  [p] Paths  ·  [J] Raw JSON  ·  [/] Search",
                 id="mode-hints",
             )
-        with Vertical(id="search-bar-container", classes="hidden"):
+        with Horizontal(id="search-bar-container", classes="hidden"):
             yield Input(placeholder="Filter parameters...", id="search-input")
+            yield Static("", id="search-status")
         with Horizontal(id="split-container"):
             with Vertical(id="tree-container"):
                 yield ParamsTree(self.graph)
@@ -1187,7 +1272,36 @@ class ParamsInspectorApp(App):
         Args:
             event: Textual Input.Changed event.
         """
-        self.query_one(ParamsTree).set_filter(event.value)
+        tree = self.query_one(ParamsTree)
+        tree.set_filter(event.value)
+        inp = self.query_one("#search-input", Input)
+        status = self.query_one("#search-status", Static)
+        hints = self.query_one("#mode-hints", Static)
+
+        q = event.value.strip()
+        if q:
+            if tree.match_count == 0:
+                inp.add_class("not-found")
+                status.remove_class("matched")
+                status.add_class("not-found")
+                status.update(" (not found)")
+                hints.update(
+                    f" [g] Group  ·  [p] Paths  ·  [/] Search: '{q}' [bold red](not found)[/bold red]"
+                )
+            else:
+                inp.remove_class("not-found")
+                status.remove_class("not-found")
+                status.add_class("matched")
+                status.update(f" ({tree.match_count} matched)")
+                hints.update(
+                    f" [g] Group  ·  [p] Paths  ·  [/] Search: '{q}' [green]({tree.match_count} matched)[/green]"
+                )
+        else:
+            inp.remove_class("not-found")
+            status.remove_class("not-found")
+            status.remove_class("matched")
+            status.update("")
+            hints.update(" [g] Group  ·  [p] Paths  ·  [J] Raw JSON  ·  [/] Search")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Hide search bar and return focus to tree upon query submission.
@@ -1314,9 +1428,19 @@ class ParamsInspectorApp(App):
         box = self.query_one("#search-bar-container")
         if "hidden" not in box.classes:
             box.add_class("hidden")
-            self.query_one("#search-input", Input).value = ""
-            self.query_one(ParamsTree).set_filter("")
-            self.query_one(ParamsTree).focus()
+            inp = self.query_one("#search-input", Input)
+            inp.value = ""
+            inp.remove_class("not-found")
+            status = self.query_one("#search-status", Static)
+            status.remove_class("not-found")
+            status.remove_class("matched")
+            status.update("")
+            self.query_one("#mode-hints", Static).update(
+                " [g] Group  ·  [p] Paths  ·  [J] Raw JSON  ·  [/] Search"
+            )
+            tree = self.query_one(ParamsTree)
+            tree.set_filter("")
+            tree.focus()
             return
         self.exit()
 
@@ -1395,54 +1519,235 @@ def resolve_workspace(
     )
 
 
-def fetch_remote_params(ws: Any, target: str) -> Path:
-    """Fetch params.json from a remote workspace using SSH and Remote State Provider.
+_SESSION_REMOTE_CACHE_DIR: Optional[Path] = None
 
-    Queries remote workspace job directories matching `target` via SSH globbing,
-    and synchronizes `params.json` into a session temporary directory using
-    SSHStateProviderClient. Automatically registers client disconnect upon exit.
+
+def get_session_cache_dir() -> Path:
+    """Return a managed temporary directory for cached remote files.
+
+    Creates the directory lazily on first access and registers automatic cleanup
+    upon process termination via atexit.
+
+    Returns:
+        Path to the session temporary cache directory.
+    """
+    global _SESSION_REMOTE_CACHE_DIR
+    if _SESSION_REMOTE_CACHE_DIR is None or not _SESSION_REMOTE_CACHE_DIR.exists():
+        tmp = tempfile.mkdtemp(prefix="xpm_cache_")
+        _SESSION_REMOTE_CACHE_DIR = Path(tmp)
+        atexit.register(shutil.rmtree, tmp, ignore_errors=True)
+    return _SESSION_REMOTE_CACHE_DIR
+
+
+def clean_job_target(
+    raw: str, ws_base: str = "", filename: Optional[str] = None
+) -> str:
+    """Normalize a target job locator, prefix, or path.
+
+    Strips surrounding slashes, explicit file names, workspace root prefixes,
+    and leading 'jobs/' prefixes.
+
+    Args:
+        raw: Raw input target string.
+        ws_base: Optional workspace base path to strip.
+        filename: Optional filename to strip from the end (e.g. 'params.json').
+
+    Returns:
+        Normalized target string (e.g. 'ee76fb8f' or 'my_task/ee76fb8f').
+
+    Raises:
+        ValueError: If the normalized target is empty or root.
+    """
+    clean = raw.strip("/")
+    if filename:
+        clean = clean.removesuffix(f"/{filename}").removesuffix(filename).strip("/")
+    else:
+        for ext in (".json", ".log", ".txt", ".out", ".err"):
+            if clean.endswith(ext):
+                clean = str(Path(clean).parent)
+                break
+
+    ws_clean = ws_base.strip("/")
+    if ws_clean and clean.startswith(ws_clean):
+        clean = clean[len(ws_clean) :].strip("/")
+
+    if "/jobs/" in clean:
+        clean = clean.split("/jobs/", 1)[1].strip("/")
+    elif clean.startswith("jobs/"):
+        clean = clean[len("jobs/") :].strip("/")
+
+    if not clean or clean == ".":
+        raise ValueError("Job target cannot be empty or root.")
+
+    return clean
+
+
+def resolve_job_file_pattern(clean_target: str, filename: str) -> str:
+    """Construct workspace-relative glob pattern for a target and filename.
+
+    Args:
+        clean_target: Normalized target (e.g. 'my_task/ee76fb8f' or 'ee76fb8f').
+        filename: Relative filename to find (e.g. 'params.json', 'experimaestro.json').
+
+    Returns:
+        Workspace-relative glob pattern string under the jobs directory.
+    """
+    clean_target = clean_target.replace(":", "/")
+    if "/" in clean_target:
+        return f"jobs/{clean_target}*/{filename}"
+    return f"jobs/*/{clean_target}*/{filename}"
+
+
+def _build_ssh_cmd(ssh_settings: Any, remote_command: str) -> List[str]:
+    """Construct an SSH command list respecting options and shell initialization.
+
+    Args:
+        ssh_settings: SSHSettings object with host, options, and shell_init.
+        remote_command: Command string to execute on the remote host.
+
+    Returns:
+        Command list suitable for subprocess.run.
+    """
+    cmd = ["ssh"]
+    if ssh_settings.options:
+        cmd.extend(ssh_settings.options)
+    cmd.append(ssh_settings.host)
+
+    full_remote_cmd = remote_command
+    if ssh_settings.shell_init:
+        full_remote_cmd = f"{ssh_settings.shell_init}; {remote_command}"
+
+    cmd.append(full_remote_cmd)
+    return cmd
+
+
+def _fetch_remote_file_rsync(
+    ssh_settings: Any, remote_path: str, local_dest: Path
+) -> None:
+    """Transfer a single remote file to local_dest using rsync or scp.
+
+    Args:
+        ssh_settings: SSHSettings object with host and options.
+        remote_path: Absolute or workspace path on the remote host.
+        local_dest: Local Path where the file should be written.
+
+    Raises:
+        RuntimeError: If both rsync and scp transfer attempts fail.
+    """
+    local_dest.parent.mkdir(parents=True, exist_ok=True)
+    source = f"{ssh_settings.host}:{remote_path}"
+    dest = str(local_dest)
+
+    cmd = ["rsync", "-L", "-a"]
+    if ssh_settings.options:
+        ssh_opt_str = " ".join(shlex.quote(opt) for opt in ssh_settings.options)
+        cmd.extend(["-e", f"ssh {ssh_opt_str}"])
+    cmd.extend([source, dest])
+
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        # Fallback to scp if rsync failed or is unavailable
+        scp_cmd = ["scp"]
+        if ssh_settings.options:
+            scp_cmd.extend(ssh_settings.options)
+        scp_cmd.extend([source, dest])
+        scp_res = subprocess.run(scp_cmd, capture_output=True, text=True)
+        if scp_res.returncode != 0:
+            err = res.stderr.strip() or scp_res.stderr.strip()
+            raise RuntimeError(
+                f"Failed to transfer {remote_path} from {ssh_settings.host}: {err}"
+            )
+
+
+def find_local_workspace_file(
+    ws_dir: Path, target: str, filename: str = "params.json"
+) -> Path:
+    """Find a specific file within a local workspace job directory.
+
+    Args:
+        ws_dir: Local workspace root directory.
+        target: Target job identifier, prefix, or job path.
+        filename: Relative filename or pattern to locate (default: 'params.json').
+
+    Returns:
+        Resolved Path to the matching file.
+
+    Raises:
+        FileNotFoundError: If target is empty or no matching file exists in workspace.
+    """
+    try:
+        clean = clean_job_target(target, str(ws_dir), filename=filename)
+    except ValueError as e:
+        raise FileNotFoundError(
+            f"Please specify a job ID or path. {filename} not found in current directory."
+        ) from e
+
+    pattern = resolve_job_file_pattern(clean, filename)
+    matches = sorted(list(ws_dir.glob(pattern)))
+
+    if not matches:
+        raise FileNotFoundError(
+            f"No job matching '{clean}' found in workspace {ws_dir} (pattern: {pattern})"
+        )
+
+    if len(matches) > 1:
+        print(
+            f"Warning: Multiple jobs ({len(matches)}) matched '{clean}'. "
+            f"Using the first match: {matches[0].parent.name} ({matches[0].parent.parent.name})",
+            file=sys.stderr,
+        )
+
+    return matches[0].resolve()
+
+
+def fetch_remote_workspace_file(
+    ws: Any,
+    target: str,
+    filename: str = "params.json",
+    cache_dir: Optional[Path] = None,
+) -> Path:
+    """Fetch a file from a remote workspace job directory using SSH and Rsync.
+
+    Resolves remote workspace job directories matching `target` and `filename`
+    via SSH pattern matching, and synchronizes the file into a local cache directory.
 
     Args:
         ws: Remote WorkspaceSettings instance with SSH configuration.
-        target: Job ID / hash prefix or job directory subpath.
+        target: Job ID / hash prefix or remote job directory subpath.
+        filename: Relative filename to fetch (default: 'params.json').
+        cache_dir: Optional local directory to store fetched files. If None,
+            uses the managed session temporary cache directory.
 
     Returns:
-        Local Path to the synchronized parameters JSON file.
+        Local Path to the synchronized file.
 
     Raises:
-        FileNotFoundError: If no job matches or parameters file cannot be found.
-        RuntimeError: If remote SSH command execution fails.
+        FileNotFoundError: If target is empty, or no matching file exists remotely.
+        RuntimeError: If remote SSH command execution or file transfer fails.
     """
-    clean_target = (
-        target.strip("/")
-        .removesuffix("/params.json")
-        .removesuffix("params.json")
-        .strip("/")
-    )
-    if not clean_target or clean_target == ".":
+    ws_raw = str(getattr(ws, "_raw_path", "")).strip("/")
+    try:
+        clean_target = clean_job_target(target, ws_raw, filename=filename)
+    except ValueError as e:
         raise FileNotFoundError(
             f"Please specify a job ID or path for remote workspace '{ws.id}'."
-        )
+        ) from e
 
-    # Strip remote workspace base path or extract job subpath
-    ws_raw = str(getattr(ws, "_raw_path", "")).strip("/")
-    if ws_raw and clean_target.startswith(ws_raw):
-        clean_target = clean_target[len(ws_raw) :].strip("/")
+    pattern = resolve_job_file_pattern(clean_target, filename)
+    remote_pattern = f"{ws._raw_path}/{pattern}"
 
-    if "/jobs/" in clean_target:
-        clean_target = clean_target.split("/jobs/", 1)[1].strip("/")
-    elif clean_target.startswith("jobs/"):
-        clean_target = clean_target[len("jobs/") :].strip("/")
-
-    pattern = (
-        f"jobs/{clean_target}*/params.json"
-        if "/" in clean_target
-        else f"jobs/*/{clean_target}*/params.json"
+    logger.info(
+        "Querying remote workspace %s via SSH for %s matching '%s'...",
+        ws.id,
+        filename,
+        clean_target,
     )
 
-    logger.info("Querying remote workspace %s via SSH for matching jobs...", ws.id)
-    py_cmd = f"import glob; [print(p) for p in glob.glob('{ws._raw_path}/{pattern}')]"
-    cmd = ["ssh", *(ws.ssh.options or []), ws.ssh.host, f"python3 -c {py_cmd!r}"]
+    py_bin = ws.ssh.python or "python3"
+    py_script = "import glob, sys; [print(p) for p in glob.glob(sys.argv[1])]"
+    remote_cmd = f"{py_bin} -c {py_script!r} {shlex.quote(remote_pattern)}"
+
+    cmd = _build_ssh_cmd(ws.ssh, remote_cmd)
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         err = res.stderr.strip() or res.stdout.strip()
@@ -1461,94 +1766,52 @@ def fetch_remote_params(ws: Any, target: str) -> Path:
             file=sys.stderr,
         )
 
-    remote_params_path = matches[0]
-    rel_path = remote_params_path[len(ws._raw_path) :].lstrip("/")
-    rel_dir = str(Path(rel_path).parent)
+    remote_file_path = matches[0]
+    rel_path = remote_file_path[len(ws._raw_path) :].lstrip("/")
+    dest_cache = cache_dir or get_session_cache_dir()
+    local_dest = dest_cache / rel_path
 
-    logger.info("Synchronizing %s from %s into session temp dir...", rel_path, ws.id)
-    from experimaestro.scheduler.remote.client import SSHStateProviderClient
+    logger.info("Synchronizing %s from %s into %s...", rel_path, ws.id, local_dest)
+    _fetch_remote_file_rsync(ws.ssh, remote_file_path, local_dest)
 
-    client = SSHStateProviderClient(
-        host=ws.ssh.host,
-        remote_workspace=ws._raw_path,
-        ssh_options=ws.ssh.options or None,
-        remote_xpm_path=ws.ssh.xpm_path or "experimaestro",
-        remote_shell_init=ws.ssh.shell_init,
-        uv_offline=ws.ssh.uv_offline,
-        remote_python=ws.ssh.python,
-    )
-    client.connect(timeout=30.0)
-    atexit.register(client.disconnect)
-
-    synced_dir = client.sync_path(rel_dir, include=["params.json"])
-    if not synced_dir:
+    if not local_dest.exists():
         raise FileNotFoundError(
-            f"Failed to synchronize {rel_path} from remote workspace '{ws.id}'."
+            f"{filename} not found in local cache {local_dest} after transfer."
         )
 
-    local_params = synced_dir / "params.json"
-    if not local_params.exists():
-        raise FileNotFoundError(
-            f"params.json not found in synced directory {synced_dir}."
-        )
-
-    return local_params
+    return local_dest
 
 
-def _find_in_local_workspace(ws_dir: Path, raw: str) -> Path:
-    """Find a params.json file within a local workspace directory.
+def find_workspace_file(
+    ws_or_path: Any,
+    target: str,
+    filename: str = "params.json",
+    cache_dir: Optional[Path] = None,
+) -> Path:
+    """Find or fetch a file from either a local or remote Experimaestro workspace.
 
     Args:
-        ws_dir: Local workspace root directory.
-        raw: Target job identifier, prefix, or job path.
+        ws_or_path: WorkspaceSettings instance (remote/local) or Path to local workspace.
+        target: Job ID prefix, locator, or job directory path.
+        filename: Relative filename within the job directory (default: 'params.json').
+        cache_dir: Optional local cache directory when fetching from a remote workspace.
 
     Returns:
-        Resolved Path to matching parameters JSON file.
-
-    Raises:
-        FileNotFoundError: If no job matches or workspace is empty.
+        Resolved local Path to the found or synchronized file.
     """
-    clean_target = (
-        raw.strip("/")
-        .removesuffix("/params.json")
-        .removesuffix("params.json")
-        .strip("/")
+    from experimaestro.settings import WorkspaceSettings
+
+    if isinstance(ws_or_path, WorkspaceSettings) and ws_or_path.is_remote:
+        return fetch_remote_workspace_file(
+            ws_or_path, target, filename=filename, cache_dir=cache_dir
+        )
+
+    ws_dir = (
+        ws_or_path.path
+        if isinstance(ws_or_path, WorkspaceSettings)
+        else Path(ws_or_path)
     )
-    if not clean_target or clean_target == ".":
-        raise FileNotFoundError(
-            "Please specify a job ID or path. params.json not found in current directory."
-        )
-
-    # Strip ws_dir if raw was an absolute path matching or containing the workspace directory
-    ws_str = str(ws_dir).strip("/")
-    if ws_str and clean_target.startswith(ws_str):
-        clean_target = clean_target[len(ws_str) :].strip("/")
-
-    if "/jobs/" in clean_target:
-        clean_target = clean_target.split("/jobs/", 1)[1].strip("/")
-    elif clean_target.startswith("jobs/"):
-        clean_target = clean_target[len("jobs/") :].strip("/")
-
-    pattern = (
-        f"jobs/{clean_target}*/params.json"
-        if "/" in clean_target
-        else f"jobs/*/{clean_target}*/params.json"
-    )
-    matches = sorted(list(ws_dir.glob(pattern)))
-
-    if not matches:
-        raise FileNotFoundError(
-            f"No job matching '{clean_target}' found in workspace {ws_dir} (pattern: {pattern})"
-        )
-
-    if len(matches) > 1:
-        print(
-            f"Warning: Multiple jobs ({len(matches)}) matched '{clean_target}'. "
-            f"Using the first match: {matches[0].parent.name} ({matches[0].parent.parent.name})",
-            file=sys.stderr,
-        )
-
-    return matches[0].resolve()
+    return find_local_workspace_file(ws_dir, target, filename=filename)
 
 
 def _find_params_in_path(p: Path) -> Optional[Path]:
@@ -1612,7 +1875,7 @@ def find_params_file(
         from experimaestro.settings import WorkspaceSettings
 
         if isinstance(ws_or_path, WorkspaceSettings) and ws_or_path.is_remote:
-            return fetch_remote_params(ws_or_path, raw)
+            return find_workspace_file(ws_or_path, raw, filename="params.json")
 
         # Explicit local workspace: if target is an existing local absolute path, return it directly
         if p.is_absolute():
@@ -1620,7 +1883,7 @@ def find_params_file(
             if resolved:
                 return resolved
 
-        return _find_in_local_workspace(ws_or_path, raw)
+        return find_workspace_file(ws_or_path, raw, filename="params.json")
 
     # 2. No explicit workspace: check if absolute or tilde path exists locally (never load from workspace)
     if p.is_absolute():
@@ -1636,12 +1899,7 @@ def find_params_file(
 
     # 4. Otherwise fall back to default workspace discovery
     ws_or_path = resolve_workspace()
-    from experimaestro.settings import WorkspaceSettings
-
-    if isinstance(ws_or_path, WorkspaceSettings) and ws_or_path.is_remote:
-        return fetch_remote_params(ws_or_path, raw)
-
-    return _find_in_local_workspace(ws_or_path, raw)
+    return find_workspace_file(ws_or_path, raw, filename="params.json")
 
 
 def main() -> None:
