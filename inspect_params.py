@@ -47,6 +47,18 @@ logger = logging.getLogger("experimaestro")
 
 @dataclass
 class ResolvedPath:
+    """Representation of a path reference resolved against job or workspace directories.
+
+    Attributes:
+        raw_value: Original string representation from the parameters JSON.
+        base: Base reference origin ('job', 'workspace', or 'absolute').
+        resolved: Fully resolved filesystem Path.
+        exists: Whether the file or directory exists on the local filesystem.
+        is_dir: Whether the resolved path is a directory.
+        size_bytes: File size in bytes if it exists and is a regular file.
+        mtime: Last modification timestamp if accessible.
+    """
+
     raw_value: str
     base: str  # 'job' | 'workspace' | 'absolute'
     resolved: Path
@@ -59,12 +71,31 @@ class ResolvedPath:
     def resolve(
         cls, raw_val: str, base: str, job_dir: Optional[Path], ws_dir: Optional[Path]
     ) -> ResolvedPath:
+        """Resolve a raw path string relative to job or workspace directory.
+
+        Resolution precedence:
+        1. If base is 'job' and job_dir is provided: resolve relative to job_dir.
+        2. If base is 'workspace' and ws_dir is provided: resolve relative to ws_dir.
+        3. If raw path is relative and job_dir is provided: resolve relative to job_dir.
+        4. Otherwise, resolve raw path directly.
+
+        Args:
+            raw_val: Raw path value specified in parameters.
+            base: Base identifier ('job', 'workspace', etc.).
+            job_dir: Optional job execution directory.
+            ws_dir: Optional workspace directory.
+
+        Returns:
+            ResolvedPath instance with existence and stat metadata populated.
+        """
         p = Path(raw_val)
         res = (
             (job_dir / p).resolve()
             if base == "job" and job_dir
             else (ws_dir / p).resolve()
             if base == "workspace" and ws_dir
+            else (job_dir / p).resolve()
+            if not p.is_absolute() and job_dir
             else p.resolve()
         )
         exists = res.exists()
@@ -81,6 +112,23 @@ class ResolvedPath:
 
 @dataclass
 class ObjectNode:
+    """A deserialized configuration object or task within the Experimaestro graph.
+
+    Attributes:
+        id: Unique numeric object identifier.
+        module: Python module declaring the object's class.
+        type_name: Short class name of the object.
+        qualified_name: Full module.class or qualified typename.
+        identifier: Content hash or task identifier string.
+        is_task: True if this object represents an executable task.
+        is_root_task: True if this is the primary root task of the job.
+        init_tasks: IDs of prerequisite tasks that must run before this task.
+        fields: Key-value mapping of parameters, sub-configs, or paths.
+        incoming_refs: List of (source_object_id, field_name) referencing this object.
+        outgoing_refs: List of (field_name, target_object_id) referenced by this object.
+        docstring: Optional docstring extracted from the underlying Python class.
+    """
+
     id: int
     module: str
     type_name: str
@@ -96,19 +144,52 @@ class ObjectNode:
 
 
 class ParamsGraph:
-    """Parses and indexes the object graph of a params.json file."""
+    """Parses, indexes, and queries the object dependency graph of an Experimaestro job.
+
+    Supports both single-job dictionaries (`params.json`) and multi-task list
+    payloads (such as Hugging Face Hub `experimaestro.json` exports).
+
+    Attributes:
+        raw_data: Original deserialized JSON data.
+        job_path: Path to the directory containing the parameters file.
+        workspace_path: Resolved path to the enclosing workspace directory.
+        objects: Mapping of numeric object IDs to ObjectNode instances.
+        root_task_id: Object ID of the primary root task, if determined.
+        version: Schema version number.
+        experimaestro_version: Experimaestro version string.
+        carbon: Carbon emission tracking configuration dictionary.
+    """
 
     workspace_path: Optional[Path]
 
     def __init__(
         self,
-        data: Dict[str, Any],
+        data: Union[Dict[str, Any], List[Dict[str, Any]]],
         job_path: Optional[Path] = None,
         workspace_path: Optional[Path] = None,
     ):
+        """Initialize the graph from a dictionary or list of raw object specifications.
+
+        Args:
+            data: Deserialized params.json dict or experimaestro.json list.
+            job_path: Optional filesystem path to the enclosing job directory.
+            workspace_path: Optional workspace path (auto-discovered if omitted).
+        """
         self.raw_data = data
         self.job_path = job_path.resolve() if job_path else None
-        ws = data.get("workspace")
+        if isinstance(data, list):
+            ws = None
+            self.version = 0
+            self.experimaestro_version = "unknown"
+            self.carbon = {}
+            raw_objs = data
+        else:
+            ws = data.get("workspace")
+            self.version = data.get("version", 0)
+            self.experimaestro_version = data.get("experimaestro", "unknown")
+            self.carbon = data.get("carbon", {})
+            raw_objs = data.get("objects", [])
+
         self.workspace_path = (
             Path(ws).resolve()
             if ws
@@ -116,15 +197,20 @@ class ParamsGraph:
             if workspace_path
             else self._find_ws(self.job_path)
         )
-        self.version = data.get("version", 0)
-        self.experimaestro_version = data.get("experimaestro", "unknown")
-        self.carbon = data.get("carbon", {})
         self.objects: Dict[int, ObjectNode] = {}
         self.root_task_id: Optional[int] = None
-        self._parse(data.get("objects", []))
+        self._parse(raw_objs)
 
     @staticmethod
     def _find_ws(path: Optional[Path]) -> Optional[Path]:
+        """Search upwards from a directory for the nearest `.experimaestro` root.
+
+        Args:
+            path: Starting directory path.
+
+        Returns:
+            Workspace root Path if `.experimaestro` exists, else None.
+        """
         if not path:
             return None
         for p in [path] + list(path.parents):
@@ -134,13 +220,42 @@ class ParamsGraph:
 
     @classmethod
     def from_file(cls, path: Path) -> ParamsGraph:
+        """Load a parameter graph from a file or directory.
+
+        Accepts direct paths to `params.json` or `experimaestro.json`, or a directory
+        containing either file.
+
+        Args:
+            path: File or directory Path.
+
+        Returns:
+            Initialized ParamsGraph instance.
+
+        Raises:
+            FileNotFoundError: If the parameter file does not exist.
+        """
         p = path.resolve()
-        f = p / "params.json" if p.is_dir() else p
+        if p.is_dir():
+            if (p / "params.json").is_file():
+                f = p / "params.json"
+            elif (p / "experimaestro.json").is_file():
+                f = p / "experimaestro.json"
+            else:
+                f = p / "params.json"
+        else:
+            f = p
         if not f.exists():
             raise FileNotFoundError(f"params.json not found at: {f}")
         return cls(json.loads(f.read_text(encoding="utf-8")), job_path=f.parent)
 
     def _parse(self, raw_objs: List[Dict[str, Any]]) -> None:
+        """Construct ObjectNode instances and resolve reference graphs.
+
+        Resolves incoming/outgoing reference edges and tags the primary root task.
+
+        Args:
+            raw_objs: List of raw object dictionaries from parameters data.
+        """
         target_hash = self.job_path.name if self.job_path else None
         cand_root = None
 
@@ -186,20 +301,42 @@ class ParamsGraph:
             self.objects[self.root_task_id].is_root_task = True
             self.objects[self.root_task_id].is_task = True
 
+        def _extract_refs(val: Any, prefix: str = "") -> List[Tuple[str, int]]:
+            refs: List[Tuple[str, int]] = []
+            if isinstance(val, dict):
+                if val.get("type") == "python" and "value" in val:
+                    refs.append((prefix, int(val["value"])))
+                else:
+                    for k_sub, v_sub in val.items():
+                        sub_p = f"{prefix}.{k_sub}" if prefix else k_sub
+                        refs.extend(_extract_refs(v_sub, sub_p))
+            elif isinstance(val, list):
+                for idx, item in enumerate(val):
+                    sub_p = f"{prefix}[{idx}]"
+                    refs.extend(_extract_refs(item, sub_p))
+            return refs
+
         for oid, n in self.objects.items():
             for it in n.init_tasks:
                 if it in self.objects:
                     n.outgoing_refs.append(("__init_task__", it))
                     self.objects[it].incoming_refs.append((oid, "__init_task__"))
             for k, v in n.fields.items():
-                if isinstance(v, dict) and v.get("type") == "python" and "value" in v:
-                    tid = int(v["value"])
+                for rk, tid in _extract_refs(v, k):
                     if tid in self.objects:
-                        n.outgoing_refs.append((k, tid))
-                        self.objects[tid].incoming_refs.append((oid, k))
+                        n.outgoing_refs.append((rk, tid))
+                        self.objects[tid].incoming_refs.append((oid, rk))
 
     def resolve_path(self, spec: Any) -> Optional[ResolvedPath]:
-        if isinstance(spec, dict) and spec.get("type") == "path":
+        """Attempt to resolve a parameter value as a path specification.
+
+        Args:
+            spec: Any field value from parameters data.
+
+        Returns:
+            ResolvedPath instance if `spec` is a path dictionary, else None.
+        """
+        if isinstance(spec, dict) and spec.get("type") in ("path", "path.serialized"):
             return ResolvedPath.resolve(
                 spec.get("value", ""),
                 spec.get("base", "absolute"),
@@ -211,6 +348,18 @@ class ParamsGraph:
     def to_python_snippet(
         self, oid: int, indent: int = 0, seen: Optional[Set[int]] = None
     ) -> str:
+        """Synthesize a reproducible Python `.C(...)` configuration snippet.
+
+        Handles recursive nested objects and guards against cycles.
+
+        Args:
+            oid: Object ID to generate code for.
+            indent: Indentation level.
+            seen: Set of already-visited object IDs in this branch.
+
+        Returns:
+            Python code string representing the object constructor.
+        """
         seen = seen or set()
         node = self.objects.get(oid)
         if not node:
@@ -227,11 +376,21 @@ class ParamsGraph:
         return f"{node.type_name}.C(\n" + "\n".join(args) + f"\n{sp})"
 
     def _fmt_py(self, v: Any, indent: int, seen: Set[int]) -> str:
+        """Format an individual field value for Python code synthesis.
+
+        Args:
+            v: Field value.
+            indent: Indentation level.
+            seen: Set of visited object IDs.
+
+        Returns:
+            Formatted Python code fragment string.
+        """
         if isinstance(v, dict):
             t = v.get("type")
             if t == "python":
                 return self.to_python_snippet(int(v["value"]), indent, seen)
-            if t == "path":
+            if t in ("path", "path.serialized"):
                 b = v.get("base")
                 return f'Path("{v.get("value")}")' + (f"  # base: {b}" if b else "")
             if t == "enum":
@@ -254,6 +413,8 @@ class ParamsGraph:
 
 
 class NodeKind(Enum):
+    """Enumeration of semantic node classifications in the parameters tree."""
+
     ROOT_TASK = "root"
     OBJECT = "obj"
     CATEGORY = "cat"
@@ -268,6 +429,20 @@ class NodeKind(Enum):
 
 @dataclass
 class NodeData:
+    """Payload metadata attached to a Textual Tree node.
+
+    Attributes:
+        kind: Semantic classification of the tree item.
+        title: Display title or name.
+        object_id: ID of the underlying Experimaestro object, if applicable.
+        field_name: Parameter field name if this node represents a field.
+        field_value: Raw or resolved value of the parameter.
+        resolved_path: ResolvedPath instance if this node represents a path.
+        target_object_id: Primary object ID if this node is a shared reference or jump target.
+        cycle_chain: Sequence of object IDs forming a circular reference chain.
+        is_shared: Whether this object is referenced multiple times in the DAG.
+    """
+
     kind: NodeKind
     title: str
     object_id: Optional[int] = None
@@ -280,9 +455,19 @@ class NodeData:
 
 
 class ParamsTree(Tree[NodeData]):
-    """Hierarchical Task Configuration Tree."""
+    """Hierarchical Task Configuration Tree widget.
+
+    Renders Experimaestro tasks, configs, hyperparameters, paths, and collections
+    in an interactive collapsible tree structure with cycle detection and shared
+    DAG reference indication.
+    """
 
     def __init__(self, graph: ParamsGraph) -> None:
+        """Initialize the parameters tree widget.
+
+        Args:
+            graph: The indexed ParamsGraph instance to display.
+        """
         super().__init__("Parameters")
         self.graph = graph
         self.group_fields: bool = True
@@ -291,23 +476,32 @@ class ParamsTree(Tree[NodeData]):
         self.primary_nodes: Dict[int, TreeNode[NodeData]] = {}
 
     def on_mount(self) -> None:
+        """Configure tree display settings and build initial tree structure."""
         self.show_root = False
         self.guide_depth = 3
         self.rebuild()
 
     def set_filter(self, q: str) -> None:
+        """Filter the tree view by search query string.
+
+        Args:
+            q: Query string to filter fields or objects.
+        """
         self.filter_query = q.strip().lower()
         self.rebuild()
 
     def toggle_grouping(self) -> None:
+        """Toggle between categorized field groups and alphabetical sorting."""
         self.group_fields = not self.group_fields
         self.rebuild()
 
     def toggle_paths(self) -> None:
+        """Toggle between absolute and relative path display."""
         self.show_absolute_paths = not self.show_absolute_paths
         self.rebuild()
 
     def rebuild(self) -> None:
+        """Clear and rebuild the entire tree from the underlying graph."""
         self.clear()
         self.primary_nodes.clear()
 
@@ -337,16 +531,80 @@ class ParamsTree(Tree[NodeData]):
             )
 
         # Root task
+        seen: Set[int] = set()
         rid = self.graph.root_task_id
         if rid and rid in self.graph.objects:
             self._render_obj(
-                self.root, rid, ancestors=(), seen=set(), label="📦 Root Task"
+                self.root, rid, ancestors=(), seen=seen, label="📦 Root Task"
             )
         else:
             self.root.add_leaf("[dim]No root task found[/dim]")
 
+        # Other root tasks / components if present (e.g. in multi-task graphs / experimaestro.json)
+        other_roots = [
+            oid
+            for oid, node in self.graph.objects.items()
+            if oid not in seen and not node.incoming_refs
+        ]
+        if other_roots:
+            other_container = self.root.add(
+                Text(
+                    f"📋 Other Tasks & Configurations ({len(other_roots)})",
+                    style="bold cyan",
+                ),
+                data=NodeData(NodeKind.CATEGORY, "Other Tasks"),
+            )
+            for roid in other_roots:
+                rnode = self.graph.objects[roid]
+                lbl = "⚡ Task" if rnode.is_task else "🧩 Config"
+                self._render_obj(
+                    other_container, roid, ancestors=(), seen=seen, label=lbl
+                )
+
+        # Fallback for disconnected cycles or orphaned nodes
+        orphans = [oid for oid in self.graph.objects if oid not in seen]
+        if orphans:
+            orphan_container = self.root.add(
+                Text(
+                    f"🧩 Additional Objects ({len(orphans)})",
+                    style="bold yellow",
+                ),
+                data=NodeData(NodeKind.CATEGORY, "Additional Objects"),
+            )
+            for roid in orphans:
+                if roid not in seen:
+                    self._render_obj(
+                        orphan_container, roid, ancestors=(), seen=seen, label="Object"
+                    )
+
         for c in self.root.children:
             c.expand()
+
+    @staticmethod
+    def _order_fields(fields: Dict[str, Any]) -> List[Tuple[str, Any]]:
+        """Order fields prioritizing core payload components over auxiliary metadata."""
+        CORE_KEYS = {
+            "model": 0,
+            "value": 0,
+            "task": 1,
+            "module": 1,
+            "dataset": 2,
+            "data": 2,
+        }
+        AUX_KEYS = {
+            "settings": 10,
+            "hooks": 11,
+            "listeners": 12,
+            "callbacks": 13,
+        }
+        return sorted(
+            fields.items(),
+            key=lambda kv: (
+                CORE_KEYS.get(kv[0], 5),
+                AUX_KEYS.get(kv[0], 5),
+                kv[0],
+            ),
+        )
 
     def _render_obj(
         self,
@@ -356,6 +614,21 @@ class ParamsTree(Tree[NodeData]):
         seen: Set[int],
         label: str = "",
     ) -> TreeNode[NodeData]:
+        """Render an ObjectNode into the tree.
+
+        Handles cycle detection, shared DAG references, field categorization,
+        and recursive rendering of child components and init tasks.
+
+        Args:
+            parent: Parent tree node to attach to.
+            oid: Numeric ID of the object to render.
+            ancestors: Tuple of ancestor object IDs for cycle detection.
+            seen: Set of already rendered object IDs in the tree.
+            label: Optional field or role label prefix.
+
+        Returns:
+            The constructed TreeNode.
+        """
         node = self.graph.objects[oid]
         hid = node.identifier[:8] if node.identifier else "no-id"
 
@@ -429,10 +702,10 @@ class ParamsTree(Tree[NodeData]):
 
         # Categorize fields
         sub_c, paths, hparams, colls = [], [], [], []
-        for fn, fv in sorted(node.fields.items()):
+        for fn, fv in self._order_fields(node.fields):
             if isinstance(fv, dict) and fv.get("type") == "python":
                 sub_c.append((fn, fv))
-            elif isinstance(fv, dict) and fv.get("type") == "path":
+            elif isinstance(fv, dict) and fv.get("type") in ("path", "path.serialized"):
                 paths.append((fn, fv))
             elif isinstance(fv, (list, dict)) and not (
                 isinstance(fv, dict) and fv.get("type") == "enum"
@@ -473,7 +746,7 @@ class ParamsTree(Tree[NodeData]):
                 self._render_val(tree_node, fn, fv, next_anc, seen)
             _add_inits(tree_node)
         else:
-            for fn, fv in sorted(node.fields.items()):
+            for fn, fv in self._order_fields(node.fields):
                 self._render_val(tree_node, fn, fv, next_anc, seen)
             _add_inits(tree_node)
 
@@ -487,6 +760,15 @@ class ParamsTree(Tree[NodeData]):
         anc: Tuple[int, ...],
         seen: Set[int],
     ) -> None:
+        """Render an individual field value (sub-object, path, collection, or primitive).
+
+        Args:
+            parent: Parent tree node to attach to.
+            fn: Field name.
+            v: Field value.
+            anc: Tuple of ancestor object IDs.
+            seen: Set of visited object IDs.
+        """
         if (
             isinstance(v, dict)
             and v.get("type") == "python"
@@ -529,16 +811,26 @@ class ParamsTree(Tree[NodeData]):
         if isinstance(v, (list, dict)) and not (
             isinstance(v, dict) and v.get("type") == "enum"
         ):
-            is_l = isinstance(v, list)
-            desc = f"[{len(v)} items]" if is_l else f"{{{len(v)} entries}}"
-            cn = parent.add(
-                Text(f"{fn}: ", style="bold white") + Text(desc, style="cyan"),
-                data=NodeData(
-                    NodeKind.FIELD_COLLECTION, fn, field_name=fn, field_value=v
-                ),
-            )
-            for k, val in enumerate(v) if is_l else sorted(v.items()):  # type: ignore[arg-type]
-                self._render_val(cn, f"[{k}]" if is_l else str(k), val, anc, seen)
+            if isinstance(v, list):
+                desc = f"[{len(v)} items]"
+                cn = parent.add(
+                    Text(f"{fn}: ", style="bold white") + Text(desc, style="cyan"),
+                    data=NodeData(
+                        NodeKind.FIELD_COLLECTION, fn, field_name=fn, field_value=v
+                    ),
+                )
+                for k_idx, val in enumerate(v):
+                    self._render_val(cn, f"[{k_idx}]", val, anc, seen)
+            else:
+                desc = f"{{{len(v)} entries}}"
+                cn = parent.add(
+                    Text(f"{fn}: ", style="bold white") + Text(desc, style="cyan"),
+                    data=NodeData(
+                        NodeKind.FIELD_COLLECTION, fn, field_name=fn, field_value=v
+                    ),
+                )
+                for k_key, val in sorted(v.items()):
+                    self._render_val(cn, str(k_key), val, anc, seen)
             return
 
         txt = Text(f"{fn}: ", style="bold white")
@@ -562,6 +854,14 @@ class ParamsTree(Tree[NodeData]):
 
     @staticmethod
     def _fmt_sz(sz: int) -> str:
+        """Format file size in human-readable B, KB, or MB units.
+
+        Args:
+            sz: Size in bytes.
+
+        Returns:
+            Human-readable size string.
+        """
         if sz < 1024:
             return f"{sz} B"
         if sz < 1024 * 1024:
@@ -570,22 +870,38 @@ class ParamsTree(Tree[NodeData]):
 
 
 class NodeDetailPane(VerticalScroll):
-    """Right-hand detail inspector or raw JSON viewer."""
+    """Right-hand detail inspector or raw JSON viewer widget.
+
+    Displays structured cards for objects, paths, primitives, carbon metrics,
+    and metadata, or syntax-highlighted raw JSON.
+    """
 
     def __init__(self, graph: ParamsGraph) -> None:
+        """Initialize the detail inspector pane.
+
+        Args:
+            graph: The ParamsGraph instance being inspected.
+        """
         super().__init__(id="detail-pane")
         self.graph = graph
         self.current_data: Optional[NodeData] = None
         self.show_raw_json: bool = False
 
     def compose(self) -> ComposeResult:
+        """Compose child widgets for the detail pane."""
         yield Static(id="detail-content")
 
     def toggle_raw_json(self) -> None:
+        """Toggle between formatted inspector card view and raw JSON view."""
         self.show_raw_json = not self.show_raw_json
         self.update_detail(self.current_data)
 
     def update_detail(self, data: Optional[NodeData]) -> None:
+        """Update displayed card or raw JSON based on selected tree node data.
+
+        Args:
+            data: NodeData of the selected tree item, or None.
+        """
         self.current_data = data
         w = self.query_one("#detail-content", Static)
         if not data:
@@ -660,6 +976,12 @@ class NodeDetailPane(VerticalScroll):
             w.update(Panel(repr(data.field_value), title=data.title))
 
     def _render_obj_card(self, w: Static, d: NodeData) -> None:
+        """Render detailed object card with properties, Python code, and references.
+
+        Args:
+            w: Target Static widget.
+            d: Selected tree node data.
+        """
         oid = d.object_id or d.target_object_id
         node = self.graph.objects.get(oid) if oid else None
         if not node:
@@ -710,6 +1032,12 @@ class NodeDetailPane(VerticalScroll):
         w.update(Group(*parts))
 
     def _render_path_card(self, w: Static, d: NodeData) -> None:
+        """Render detailed path card with filesystem metadata and preview.
+
+        Args:
+            w: Target Static widget.
+            d: Selected tree node data.
+        """
         rp = d.resolved_path
         if not rp:
             return
@@ -745,6 +1073,15 @@ class NodeDetailPane(VerticalScroll):
 
     @staticmethod
     def _make_table(rows: List[Tuple[str, str]], title: Optional[str] = None) -> Any:
+        """Construct a formatted two-column table or panel.
+
+        Args:
+            rows: List of (key, value) string pairs.
+            title: Optional panel title.
+
+        Returns:
+            Rich Table or Panel instance.
+        """
         tbl = Table(show_header=False, box=None, padding=(0, 1))
         tbl.add_column("Key", style="bold cyan", width=14)
         tbl.add_column("Value")
@@ -759,7 +1096,11 @@ class NodeDetailPane(VerticalScroll):
 
 
 class ParamsInspectorApp(App):
-    """Standalone Textual App for inspecting experimaestro params.json."""
+    """Standalone Textual App for inspecting experimaestro params.json.
+
+    Features interactive tree navigation, categorization, path resolution,
+    fuzzy search filtering, Python snippet copying, and raw JSON inspection.
+    """
 
     TITLE = "Experimaestro Parameters Inspector"
     CSS = """
@@ -791,6 +1132,11 @@ class ParamsInspectorApp(App):
     ]
 
     def __init__(self, params_path: Path):
+        """Initialize the parameters inspector application.
+
+        Args:
+            params_path: Filesystem path to the parameters JSON file.
+        """
         super().__init__()
         self.params_path = Path(params_path).resolve()
         self.graph = ParamsGraph.from_file(self.params_path)
@@ -798,6 +1144,7 @@ class ParamsInspectorApp(App):
         self.sub_title = f"{jname} ({self.params_path.parent.parent.name if self.graph.job_path else ''})"
 
     def compose(self) -> ComposeResult:
+        """Compose top-level layout of the application."""
         yield Header()
         with Horizontal(id="mode-bar"):
             yield Static(" ⚙️ Config Tree ", id="view-title", classes="title-badge")
@@ -814,23 +1161,45 @@ class ParamsInspectorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        """Set initial focus to the parameters tree on mount."""
         self.query_one(ParamsTree).focus()
 
     def on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        """Update detail inspector pane when cursor moves over a node.
+
+        Args:
+            event: Textual NodeHighlighted event.
+        """
         self.query_one(NodeDetailPane).update_detail(event.node.data)
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Activate selected node, jumping to primary definition if shared.
+
+        Args:
+            event: Textual NodeSelected event.
+        """
         if event.node.data and event.node.data.target_object_id:
             self.action_jump_primary()
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        """Filter tree view as query string changes.
+
+        Args:
+            event: Textual Input.Changed event.
+        """
         self.query_one(ParamsTree).set_filter(event.value)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Hide search bar and return focus to tree upon query submission.
+
+        Args:
+            event: Textual Input.Submitted event.
+        """
         self.query_one("#search-bar-container").add_class("hidden")
         self.query_one(ParamsTree).focus()
 
     def action_toggle_grouping(self) -> None:
+        """Toggle categorized field groups versus flat alphabetical ordering."""
         tree = self.query_one(ParamsTree)
         tree.toggle_grouping()
         self.notify(
@@ -838,6 +1207,7 @@ class ParamsInspectorApp(App):
         )
 
     def action_toggle_paths(self) -> None:
+        """Toggle absolute filesystem path versus raw relative path display."""
         tree = self.query_one(ParamsTree)
         tree.toggle_paths()
         self.notify(
@@ -845,6 +1215,7 @@ class ParamsInspectorApp(App):
         )
 
     def action_toggle_raw_json(self) -> None:
+        """Toggle raw JSON view versus structured inspector card in detail pane."""
         pane = self.query_one(NodeDetailPane)
         pane.toggle_raw_json()
         self.notify(
@@ -852,7 +1223,8 @@ class ParamsInspectorApp(App):
         )
 
     def action_expand_all(self) -> None:
-        def _exp(n: TreeNode) -> None:
+        """Recursively expand all nodes in the parameter tree."""
+        def _exp(n: TreeNode[NodeData]) -> None:
             n.expand()
             for c in n.children:
                 _exp(c)
@@ -861,7 +1233,8 @@ class ParamsInspectorApp(App):
         self.notify("Expanded all")
 
     def action_collapse_all(self) -> None:
-        def _col(n: TreeNode) -> None:
+        """Collapse all child nodes in the parameter tree."""
+        def _col(n: TreeNode[NodeData]) -> None:
             for c in n.children:
                 _col(c)
                 c.collapse()
@@ -870,6 +1243,7 @@ class ParamsInspectorApp(App):
         self.notify("Collapsed all")
 
     def action_toggle_search(self) -> None:
+        """Toggle visibility and focus of the search filter input."""
         box = self.query_one("#search-bar-container")
         if "hidden" in box.classes:
             box.remove_class("hidden")
@@ -879,6 +1253,7 @@ class ParamsInspectorApp(App):
             self.query_one(ParamsTree).focus()
 
     def action_copy_value(self) -> None:
+        """Copy the identifier, resolved path, or raw value of the selected node."""
         node = self.query_one(ParamsTree).cursor_node
         if not node or not node.data:
             return
@@ -898,6 +1273,7 @@ class ParamsInspectorApp(App):
             self.notify(f"Copied: {val[:32]}...")
 
     def action_copy_python(self) -> None:
+        """Copy the reproducible Python constructor snippet of the selected object."""
         node = self.query_one(ParamsTree).cursor_node
         oid = node.data.object_id if node and node.data else self.graph.root_task_id
         if oid and oid in self.graph.objects:
@@ -905,6 +1281,7 @@ class ParamsInspectorApp(App):
             self.notify("Copied Python .C(...) constructor!")
 
     def action_jump_primary(self) -> None:
+        """Navigate to the primary definition node in the tree from a shared reference."""
         node = self.query_one(ParamsTree).cursor_node
         if not node or not node.data:
             return
@@ -933,6 +1310,7 @@ class ParamsInspectorApp(App):
             self.notify(f"Jumped to primary definition #{tid}")
 
     def action_dismiss_or_quit(self) -> None:
+        """Dismiss the search bar if visible, or exit the application."""
         box = self.query_one("#search-bar-container")
         if "hidden" not in box.classes:
             box.add_class("hidden")
@@ -946,7 +1324,26 @@ class ParamsInspectorApp(App):
 def resolve_workspace(
     workspace: Optional[str] = None,
 ) -> Union[Path, Any]:
-    """Resolve workspace directory from an explicit name/path or Experimaestro default."""
+    """Resolve workspace directory from an explicit name/path or Experimaestro default.
+
+    Resolution order:
+    1. If workspace argument is provided:
+       - If it points to an existing local directory, return it.
+       - Otherwise, look up configured workspace settings via `find_workspace(workspace=...)`.
+    2. If no workspace is provided:
+       - Look up default workspace via `find_workspace()`.
+       - Check `EXPERIMAESTRO_WORKSPACE` environment variable.
+       - Search parent directories for `.experimaestro`.
+
+    Args:
+        workspace: Optional workspace name or filesystem path.
+
+    Returns:
+        Resolved Path to the local workspace directory, or remote WorkspaceSettings.
+
+    Raises:
+        FileNotFoundError: If the workspace cannot be determined or does not exist.
+    """
     if workspace:
         p = Path(workspace).expanduser().resolve()
         if p.is_dir():
@@ -1001,8 +1398,20 @@ def resolve_workspace(
 def fetch_remote_params(ws: Any, target: str) -> Path:
     """Fetch params.json from a remote workspace using SSH and Remote State Provider.
 
-    The file is synchronized into a temporary directory managed by the
-    state provider and automatically cleaned up upon program exit.
+    Queries remote workspace job directories matching `target` via SSH globbing,
+    and synchronizes `params.json` into a session temporary directory using
+    SSHStateProviderClient. Automatically registers client disconnect upon exit.
+
+    Args:
+        ws: Remote WorkspaceSettings instance with SSH configuration.
+        target: Job ID / hash prefix or job directory subpath.
+
+    Returns:
+        Local Path to the synchronized parameters JSON file.
+
+    Raises:
+        FileNotFoundError: If no job matches or parameters file cannot be found.
+        RuntimeError: If remote SSH command execution fails.
     """
     clean_target = (
         target.strip("/")
@@ -1087,7 +1496,18 @@ def fetch_remote_params(ws: Any, target: str) -> Path:
 
 
 def _find_in_local_workspace(ws_dir: Path, raw: str) -> Path:
-    """Find a params.json file within a local workspace directory."""
+    """Find a params.json file within a local workspace directory.
+
+    Args:
+        ws_dir: Local workspace root directory.
+        raw: Target job identifier, prefix, or job path.
+
+    Returns:
+        Resolved Path to matching parameters JSON file.
+
+    Raises:
+        FileNotFoundError: If no job matches or workspace is empty.
+    """
     clean_target = (
         raw.strip("/")
         .removesuffix("/params.json")
@@ -1131,11 +1551,60 @@ def _find_in_local_workspace(ws_dir: Path, raw: str) -> Path:
     return matches[0].resolve()
 
 
+def _find_params_in_path(p: Path) -> Optional[Path]:
+    """Check if a path points directly to, or contains, a parameters JSON file.
+
+    Checks if `p` is a file directly, or if it is a directory containing
+    `params.json` or `experimaestro.json` (or any descendant match).
+
+    Args:
+        p: Path to inspect.
+
+    Returns:
+        Resolved Path to the found file, or None if no match is found.
+    """
+    if p.is_file():
+        return p.resolve()
+    if p.is_dir():
+        for name in ("params.json", "experimaestro.json"):
+            cand = p / name
+            if cand.is_file():
+                return cand.resolve()
+        m = list(p.glob("**/params.json")) + list(p.glob("**/experimaestro.json"))
+        if m:
+            return m[0].resolve()
+    return None
+
+
 def find_params_file(
     target: Optional[str] = None, workspace: Optional[str] = None
 ) -> Path:
+    """Find and resolve the path to a params.json or experimaestro.json file.
+
+    Search resolution order:
+    1. If an explicit workspace is specified:
+       - If remote, query and synchronize via SSH.
+       - If target is an existing local absolute path, return it directly.
+       - Otherwise, search inside the specified local workspace.
+    2. If no workspace is specified:
+       - If target is an absolute or user-tilde path, resolve locally; do NOT
+         attempt workspace discovery.
+       - If target is an existing local relative path/directory, resolve it.
+       - Otherwise, discover the default workspace (remote or local) and search
+         for matching jobs.
+
+    Args:
+        target: Job ID / hash prefix, path to params.json, or job directory.
+        workspace: Optional explicit workspace name or path.
+
+    Returns:
+        Resolved local Path to the parameters JSON file.
+
+    Raises:
+        FileNotFoundError: If the target cannot be found or matched.
+    """
     raw = target or "."
-    p = Path(raw)
+    p = Path(raw).expanduser()
 
     # 1. If explicit workspace is specified, check it first (remote overrides local path)
     if workspace is not None:
@@ -1147,36 +1616,25 @@ def find_params_file(
 
         # Explicit local workspace: if target is an existing local absolute path, return it directly
         if p.is_absolute():
-            if p.is_file():
-                return p
-            if p.is_dir():
-                cand = p / "params.json"
-                if cand.is_file():
-                    return cand
+            resolved = _find_params_in_path(p)
+            if resolved:
+                return resolved
 
         return _find_in_local_workspace(ws_or_path, raw)
 
-    # 2. No explicit workspace: check if absolute or relative path exists locally
+    # 2. No explicit workspace: check if absolute or tilde path exists locally (never load from workspace)
     if p.is_absolute():
-        if p.is_file():
-            return p
-        if p.is_dir():
-            cand = p / "params.json"
-            if cand.is_file():
-                return cand
-            m = list(p.glob("**/params.json"))
-            if m:
-                return m[0]
+        resolved = _find_params_in_path(p)
+        if resolved:
+            return resolved
         raise FileNotFoundError(f"params.json not found at absolute path: {raw}")
 
-    if p.is_file():
-        return p.resolve()
-    if p.is_dir():
-        cand = p / "params.json"
-        if cand.is_file():
-            return cand.resolve()
+    # 3. Existing relative path locally
+    resolved = _find_params_in_path(p)
+    if resolved:
+        return resolved
 
-    # 3. Otherwise fall back to default workspace discovery
+    # 4. Otherwise fall back to default workspace discovery
     ws_or_path = resolve_workspace()
     from experimaestro.settings import WorkspaceSettings
 
@@ -1187,6 +1645,7 @@ def find_params_file(
 
 
 def main() -> None:
+    """CLI entry point for Experimaestro Parameters Inspector."""
     if not hasattr(sys, "_called_from_test"):
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 

@@ -1,6 +1,7 @@
 """Automated tests for the standalone Params Inspector tool."""
 
 from pathlib import Path
+import json
 import sys
 import pytest
 
@@ -284,6 +285,12 @@ def test_find_params_file_absolute_path():
     # Absolute path to params.json
     res1 = find_params_file(str(MNIST_PARAMS_PATH))
     assert res1 == MNIST_PARAMS_PATH
+
+    # Absolute path with explicit local workspace specified must NOT load from workspace
+    res1_ws = find_params_file(
+        str(MNIST_PARAMS_PATH), workspace="cross_encoders"
+    )
+    assert res1_ws == MNIST_PARAMS_PATH
 
     # Absolute path to parent job directory
     res2 = find_params_file(str(MNIST_PARAMS_PATH.parent))
@@ -607,3 +614,154 @@ def test_fetch_remote_params_with_full_remote_absolute_path(tmp_path, monkeypatc
         f"{ws._raw_path}/jobs/xpmir.evaluation.evaluate/{target_job}12345*/params.json"
         in remote_py_cmd
     )
+
+
+def test_params_graph_list_payload(tmp_path):
+    """Verify that ParamsGraph supports direct list payloads (experimaestro.json format)."""
+    list_data = [
+        {
+            "id": 1001,
+            "module": "mock_mod",
+            "type": "MockTokenizer",
+            "identifier": "tok123",
+            "fields": {"model_name": "bert"},
+        },
+        {
+            "id": 1002,
+            "module": "mock_mod",
+            "type": "MockModel",
+            "identifier": "mod123",
+            "task": 1002,
+            "fields": {
+                "tokenizer": {"type": "python", "value": 1001},
+                "weights": {"type": "path.serialized", "value": "model.safetensors"},
+            },
+        },
+    ]
+
+    p = tmp_path / "experimaestro.json"
+    p.write_text(json.dumps(list_data), encoding="utf-8")
+    (tmp_path / "model.safetensors").write_text("weights")
+
+    graph = ParamsGraph.from_file(p)
+    assert len(graph.objects) == 2
+    assert graph.workspace_path is None
+    assert graph.version == 0
+    assert graph.experimaestro_version == "unknown"
+    assert graph.root_task_id == 1002
+
+    model_node = graph.objects[1002]
+    assert model_node.is_root_task is True
+    assert ("tokenizer", 1001) in model_node.outgoing_refs
+
+    # Path resolution for path.serialized relative to job_dir
+    weights_path = graph.resolve_path(model_node.fields["weights"])
+    assert weights_path is not None
+    assert weights_path.exists is True
+    assert weights_path.resolved == tmp_path / "model.safetensors"
+
+    # Python snippet formatting
+    py_code = graph.to_python_snippet(1002)
+    assert "MockModel.C(" in py_code
+    assert 'Path("model.safetensors")' in py_code
+
+
+def test_find_params_file_directory_with_experimaestro_json(tmp_path):
+    """Verify finding experimaestro.json in directory when params.json is absent."""
+    exp_file = tmp_path / "experimaestro.json"
+    exp_file.write_text("[]", encoding="utf-8")
+
+    res = find_params_file(str(tmp_path))
+    assert res == exp_file
+
+
+@pytest.mark.anyio
+async def test_experimaestro_json_tui_app(tmp_path):
+    """Verify that ParamsInspectorApp mounts and renders multi-task roots from list payloads."""
+    list_data = [
+        {
+            "id": 2001,
+            "module": "pkg",
+            "type": "DatasetTask",
+            "identifier": "ds2001",
+            "task": 2001,
+            "fields": {"size": 100},
+        },
+        {
+            "id": 2002,
+            "module": "pkg",
+            "type": "EvalTask",
+            "identifier": "eval2002",
+            "task": 2002,
+            "fields": {"metric": "ndcg"},
+        },
+    ]
+    p = tmp_path / "experimaestro.json"
+    p.write_text(json.dumps(list_data), encoding="utf-8")
+
+    app = ParamsInspectorApp(p)
+    async with app.run_test() as pilot:
+        tree = app.query_one(ParamsTree)
+        assert len(tree.root.children) >= 2
+        labels = [str(c.label) for c in tree.root.children]
+        assert any("Root Task" in lbl for lbl in labels)
+        assert any("Other Tasks" in lbl for lbl in labels)
+
+
+@pytest.mark.anyio
+async def test_root_model_primary_placement(tmp_path):
+    """Verify that core fields ('value', 'model') render as primary at the root rather than in listeners."""
+    # Construct a task where 'settings' alphabetically precedes 'value',
+    # and 'settings' contains a nested listener referencing the same model.
+    data = [
+        {
+            "id": 1,
+            "module": "mock",
+            "type": "TargetModel",
+            "identifier": "model123",
+            "fields": {"hidden_size": 768},
+        },
+        {
+            "id": 2,
+            "module": "mock",
+            "type": "Listener",
+            "identifier": "listener123",
+            "fields": {
+                "scorer": {"type": "python", "value": 1},
+            },
+        },
+        {
+            "id": 3,
+            "module": "mock",
+            "type": "RootTask",
+            "identifier": "roottask123",
+            "task": 3,
+            "fields": {
+                "settings": {"type": "python", "value": 2},
+                "value": {"type": "python", "value": 1},
+            },
+        },
+    ]
+    p = tmp_path / "experimaestro.json"
+    p.write_text(json.dumps(data), encoding="utf-8")
+
+    app = ParamsInspectorApp(p)
+    async with app.run_test() as pilot:
+        tree = app.query_one(ParamsTree)
+        # Root task is child 1 (after metadata)
+        root_node = tree.root.children[1]
+
+        # The primary node for model #1 must be a direct child of root task under 'value'
+        primary_model = tree.primary_nodes.get(1)
+        assert primary_model is not None
+        assert primary_model.parent == root_node
+        assert "value:" in str(primary_model.label)
+        assert "Shared" not in str(primary_model.label)
+
+        # The listener's reference under 'settings' must be marked as Shared
+        settings_node = [c for c in root_node.children if "settings:" in str(c.label)][0]
+        listener_scorer = settings_node.children[0]
+        assert "Shared" in str(listener_scorer.label)
+        assert listener_scorer.data.target_object_id == 1
+
+
