@@ -90,7 +90,7 @@ The diagram below illustrates the task dependency graph (DAG) of the MNIST exper
 
 ![Experiment DAG](img/DAG_example.png)
 
-> 💡 **Side note:** *You can generate this graph yourself using `experimaestro dag` ([Docs](cli.md#experiment-dag-visualization-experimaestro-dag))*
+> 💡 **Side note:** *You can generate this graph yourself using `experimaestro dag` ([Docs](https://experimaestro-python.readthedocs.io/en/latest/cli.html#experiment-dag-visualization-experimaestro-dag))*
 
 We will now have a closer look at the key files of this demo repository. In short, in the `mnist_xp` folder we have
 
