@@ -20,7 +20,7 @@ experimaestro. And you will be able to launch and monitor your own experiments. 
 
 <!-- doc:start -->
 
-# Setup 
+# Setup
 Follow these steps to ensure a working environment:
 
 ## I - Installation
@@ -54,7 +54,7 @@ workspaces:
 - **💡 Tip:** This command will write the default config above in your `settings.yaml` if it doesn't already exist.
 
 ```bash
-chmod +x install_settings.sh&& ./install_settings.sh 
+chmod +x install_settings.sh&& ./install_settings.sh
 ```
 
 ### 2. Specify workspace inline
@@ -66,9 +66,9 @@ mkdir $HOME/experiments
 uv run experimaestro run-experiment --workdir $HOME/experiments ...
 ```
 
-## III - Launchers 
+## III - Launchers
 
-[Launchers](https://experimaestro-python.readthedocs.io/en/latest/launchers), specify how a task should be launched. There exist two types of launchers at the moment, direct launcher (starting a new process) or through slurm. 
+[Launchers](https://experimaestro-python.readthedocs.io/en/latest/launchers), specify how a task should be launched. There exist two types of launchers at the moment, direct launcher (starting a new process) or through slurm.
 The `launchers.py` file is there to tell experimaestro how to launch your tasks. Without it, it will just launch everything in parallel (subprocesses): This is actually fine for this lightweight experiment, so this section is optional.
 
 ### 1. Generating a launchers file (single host)
@@ -152,8 +152,7 @@ class Learn(Task):
 
     ...
 
-    def execute(self):
-        ...
+    def execute(self): ...
 ```
 
 You can notice that tasks are specific types of configuration. You can also notice that
@@ -178,8 +177,7 @@ tightly associated with experimaestro, for this purpose.
 ```py
 class LabelledImages(Base, ABC):
     @abstractmethod
-    def torchvision_dataset(self, **kwargs) -> VisionDataset:
-        ...
+    def torchvision_dataset(self, **kwargs) -> VisionDataset: ...
 ```
 
 The `datamaestro.Base` class is the central class that any dataset class should
@@ -281,15 +279,20 @@ It acts as a structured way to input the necessary details to execute a task or 
 Here, we first define a `ConfigurationBase` object that describes our experiment settings.
 ```python
 from experimaestro import ConfigurationBase
+
 ...
+
+
 @configuration
 class Configuration(ConfigurationBase):
-	# experimaestro Task parameters
-	## Model
-	n_layers: int = 3 # number of Hidden layers
-	...
-	# Misc
-	launcher: str = """duration=3h & cuda(mem=4G)*1 & cpu(cores=2)"""
+    # experimaestro Task parameters
+    ## Model
+    n_layers: int = 3  # number of Hidden layers
+    ...
+    # Misc
+    launcher: str = """duration=3h & cuda(mem=4G)*1 & cpu(cores=2)"""
+
+
 ...
 ```
 This class describes the configuration needed to run our experiment, The values for this configuration
@@ -356,7 +359,7 @@ Once your workspace and launcher are configured (see [Installation](#installatio
 Before actually running the tasks, you can first launch a **dry-run** to verify what will be launched: experimaestro will list all tasks in the experiment.
 
 ```bash
-uv run experimaestro run-experiment mnist_xp/params.yaml --run-mode dry_run 
+uv run experimaestro run-experiment mnist_xp/params.yaml --run-mode dry_run
 ```
 
 the dry-run mode notably features:
@@ -367,7 +370,7 @@ the dry-run mode notably features:
 If you are happy with the output of the dry-run, you can now actually launch them !
 
 ```bash
-uv run experimaestro run-experiment mnist_xp/params.yaml --run-mode dry_run 
+uv run experimaestro run-experiment mnist_xp/params.yaml --run-mode dry_run
 ```
 
 Now experimaestro will:

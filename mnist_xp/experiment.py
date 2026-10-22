@@ -75,17 +75,15 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                     n_layers=tag(n_layer),
                 )
 
-                learn_task = (
-                    Learn.C(
-                        # Defines the data and model used for training
-                        model=model,
-                        data=ds_mnist.train,
-                        # Training params are not tagged
-                        epochs=cfg.epochs,
-                        n_val=cfg.n_val,
-                        lr=cfg.lr,
-                        batch_size=cfg.batch_size,
-                    )
+                learn_task = Learn.C(
+                    # Defines the data and model used for training
+                    model=model,
+                    data=ds_mnist.train,
+                    # Training params are not tagged
+                    epochs=cfg.epochs,
+                    n_val=cfg.n_val,
+                    lr=cfg.lr,
+                    batch_size=cfg.batch_size,
                 )
 
                 # Submit the task

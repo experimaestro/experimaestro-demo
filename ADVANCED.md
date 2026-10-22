@@ -8,13 +8,14 @@ The advanced demo (`mnist_xp_advanced/experiment.py`) demonstrates features desi
 
 ### Declarative Grid Search
 
-The advanced demo leverages Experimaestro's unified [`GridSearch[T]`](https://experimaestro-python.readthedocs.io/en/latest/experiments/grid_search.html) system to define and run parameter sweeps cleanly, avoiding complex nested loops. 
+The advanced demo leverages Experimaestro's unified [`GridSearch[T]`](https://experimaestro-python.readthedocs.io/en/latest/experiments/grid_search.html) system to define and run parameter sweeps cleanly, avoiding complex nested loops.
 
 1. **Type Hints in the Configuration**:
    Fields representing hyperparameters use the `GridSearch[T]` type hint. This allows fields to accept single values, lists of values, or ranges in the configuration files (such as `params.yaml`).
 
    ```python
    from experimaestro.experiments.grid import GridSearch
+
 
    @configuration
    class Configuration(ConfigurationBase):

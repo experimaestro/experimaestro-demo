@@ -22,6 +22,7 @@ from experimaestro import tags
 from experimaestro.scheduler.workspace_state_provider import WorkspaceStateProvider
 from experimaestro.settings import find_workspace
 
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
@@ -44,7 +45,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.info("Loading experiment info from workspace %s, experiment id %s, run id %s", args.workspace, args.experiment_id, args.run_id)
+    logging.info(
+        "Loading experiment info from workspace %s, experiment id %s, run id %s",
+        args.workspace,
+        args.experiment_id,
+        args.run_id,
+    )
     if args.workspace.exists() and (args.workspace / "experiments").exists():
         logging.info("Workspace found at %s", args.workspace)
         workspace = args.workspace

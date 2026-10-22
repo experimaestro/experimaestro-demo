@@ -31,7 +31,6 @@ MARGIN_X = 4.0  # Gap between boxes horizontally
 MARGIN_Y = 0.5  # Gap between boxes vertically
 
 
-
 def print_robust_tree(
     job_ids: list[str],
     dependents: dict[str, list[str]],
@@ -77,7 +76,6 @@ def print_robust_tree(
         already_visited = jid in visited
         if already_visited:
             label += " (already shown)"
-
 
         if already_visited:
             continue
@@ -255,7 +253,9 @@ def plot_dag(
         ntype = (
             "action"
             if isinstance(config, Action)
-            else "task" if isinstance(config, Task) else "config"
+            else "task"
+            if isinstance(config, Task)
+            else "config"
         )
 
         # Get tags and create label
@@ -313,10 +313,37 @@ def plot_dag(
             )
         )
         if info["tags"]:
-            plt.text(x, y + 0.1, info["name"], ha="center", va="center", fontsize=10, fontweight="bold", zorder=3)
-            plt.text(x, y - 0.15, info["tags"], ha="center", va="center", fontsize=8, color="#666666", zorder=3)
+            plt.text(
+                x,
+                y + 0.1,
+                info["name"],
+                ha="center",
+                va="center",
+                fontsize=10,
+                fontweight="bold",
+                zorder=3,
+            )
+            plt.text(
+                x,
+                y - 0.15,
+                info["tags"],
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="#666666",
+                zorder=3,
+            )
         else:
-            plt.text(x, y, info["name"], ha="center", va="center", fontsize=10, fontweight="bold", zorder=3)
+            plt.text(
+                x,
+                y,
+                info["name"],
+                ha="center",
+                va="center",
+                fontsize=10,
+                fontweight="bold",
+                zorder=3,
+            )
 
     from matplotlib.lines import Line2D
 
@@ -349,7 +376,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--workspace", type=Path, default=Path("~/experiments/mnist_xp_advanced").expanduser()
+        "--workspace",
+        type=Path,
+        default=Path("~/experiments/mnist_xp_advanced").expanduser(),
     )
     parser.add_argument("--experiment-id", default="MNIST_train")
     parser.add_argument("--run-id", default=None)
@@ -368,7 +397,6 @@ def main() -> None:
         run_dir = provider.workspace_path / "experiments" / args.experiment_id / run_id
     except Exception:
         return
-
 
     with (run_dir / "objects.jsonl").open() as f:
         all_definitions = [json.loads(line) for line in f if line.strip()]
