@@ -32,7 +32,7 @@ jobs:
       # combination as tested when the run actually succeeds.
       - name: Has this (experimaestro, datamaestro) pair been tested?
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .tested
           key: tested-${{ steps.rev.outputs.xpm }}-${{ steps.rev.outputs.dm }}
@@ -47,12 +47,12 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.decide.outputs.run == 'true'
 
       - name: Install uv
         if: steps.decide.outputs.run == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
 
@@ -90,7 +90,44 @@ jobs:
         run: echo "${{ steps.rev.outputs.xpm }} ${{ steps.rev.outputs.dm }}" > .tested
       - name: Save cache
         if: success() && steps.decide.outputs.run == 'true' && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .tested
           key: tested-${{ steps.rev.outputs.xpm }}-${{ steps.rev.outputs.dm }}
+
+  # Checks that the demo experiments, as shipped (real params.yaml, locked
+  # dependencies), can be planned: a dry run builds every task and prints what
+  # would be launched, without downloading MNIST or running anything.
+  # `uv sync --locked` also fails if uv.lock is stale or points to a local path.
+  dry-run:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        params:
+          - mnist_xp/params.yaml
+          - mnist_xp_advanced/params.yaml
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # The test launcher config resolves any launcher spec to a local
+      # DirectLauncher, so no user-level launchers.py is needed.
+      - name: Dry-run ${{ matrix.params }}
+        run: |
+          uv run --no-sync experimaestro run-experiment \
+            --workdir "$RUNNER_TEMP/xp" \
+            --xpm-config-dir tests/xpm-config \
+            --run-mode dry_run \
+            ${{ matrix.params }}
