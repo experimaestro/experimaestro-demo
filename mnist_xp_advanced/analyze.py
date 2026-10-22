@@ -20,7 +20,8 @@ import pandas as pd
 
 from experimaestro import tags
 from experimaestro.scheduler.workspace_state_provider import WorkspaceStateProvider
-from experimaestro.settings import find_workspace
+from experimaestro.settings import find_workspace, get_workspace
+
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
@@ -44,17 +45,80 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.info("Loading experiment info from workspace %s, experiment id %s, run id %s", args.workspace, args.experiment_id, args.run_id)
-    if args.workspace.exists() and (args.workspace / "experiments").exists():
-        logging.info("Workspace found at %s", args.workspace)
-        workspace = args.workspace
+    if args.workspace:
+        ws_id = str(args.workspace)
+        if get_workspace(ws_id) is not None:
+            ws_env = find_workspace(workspace=ws_id, experiment_id=args.experiment_id)
+        else:
+            ws_env = find_workspace(
+                workdir=Path(args.workspace).expanduser(),
+                experiment_id=args.experiment_id,
+            )
     else:
-        logging.warning("Workspace not found at %s", args.workspace)
-        ws = find_workspace()
-        workspace = ws.path
-        logging.info("Using default workspace %s at %s", ws.id, workspace)
+        ws_env = find_workspace(experiment_id=args.experiment_id)
+
+    workspace = ws_env.path
+    logging.info("Using workspace %s at %s", ws_env.id, workspace)
+
+    experiments_dir = workspace / "experiments"
+    if not experiments_dir.exists():
+        logging.error("No 'experiments' directory found in workspace '%s'.", workspace)
+        return
+
+    available_xps = sorted(
+        [
+            p.name
+            for p in experiments_dir.iterdir()
+            if p.is_dir() and not p.name.startswith(".")
+        ]
+    )
+    exp_dir = experiments_dir / args.experiment_id
+    if not exp_dir.exists():
+        xps_str = (
+            ", ".join(f"'{x}'" for x in available_xps) if available_xps else "(none)"
+        )
+        logging.error(
+            "Experiment '%s' not found in workspace '%s'. Available experiments: %s",
+            args.experiment_id,
+            workspace,
+            xps_str,
+        )
+        return
+
+    available_runs = sorted(
+        [p.name for p in exp_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    )
+    if not available_runs:
+        logging.error(
+            "Experiment '%s' in workspace '%s' has no recorded runs.",
+            args.experiment_id,
+            workspace,
+        )
+        return
+
+    if args.run_id and args.run_id not in available_runs:
+        runs_str = ", ".join(f"'{r}'" for r in available_runs)
+        logging.error(
+            "Run '%s' not found for experiment '%s' in workspace '%s'. Available runs: %s",
+            args.run_id,
+            args.experiment_id,
+            workspace,
+            runs_str,
+        )
+        return
+
+    run_id = args.run_id or available_runs[-1]
     provider = WorkspaceStateProvider(workspace)
-    info = provider.load_xp_info(args.experiment_id, run_id=args.run_id)
+    try:
+        info = provider.load_xp_info(args.experiment_id, run_id=run_id)
+    except Exception as e:
+        logging.error(
+            "Failed to load experiment info for '%s' (run %s): %s",
+            args.experiment_id,
+            run_id,
+            e,
+        )
+        return
 
     rows = []
     for evaluation in info.jobs.values():
