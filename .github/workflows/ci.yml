@@ -8,14 +8,18 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  # Weekly smoke test against the latest experimaestro + datamaestro. The job
-  # no-ops when neither upstream tip has moved since the last successful run
-  # (see the cache step below).
+  # Weekly test against the latest experimaestro + datamaestro. The job no-ops
+  # when neither upstream tip has moved since the last successful run (see the
+  # cache step below).
   schedule:
     - cron: "0 4 * * 1" # Mondays 04:00 UTC
 
+# One job, one install: the demo is tested first with the locked dependencies
+# (as users get it), then with experimaestro + datamaestro master installed on
+# top. Each time, both experiments are dry-run on the shipped params.yaml, then
+# run for real on a tiny config with fake data (see tests/).
 jobs:
-  smoke-test:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Resolve experimaestro + datamaestro master HEADs
@@ -56,18 +60,40 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+          cache-suffix: cpu
 
       - name: Set up Python
         if: steps.decide.outputs.run == 'true'
         run: uv python install 3.12
 
-      - name: Install dependencies
+      # `uv sync` would install the CUDA build of torch from uv.lock, with
+      # ~2.5 GB of nvidia-* packages that CI never uses (uv cannot swap the index
+      # of a locked package). Instead, export the lock (fails if uv.lock is out
+      # of date or points to a local path), drop the CUDA-only packages, and
+      # install the same torch/torchvision versions from PyTorch's CPU index.
+      - name: Install the locked dependencies (CPU-only PyTorch)
         if: steps.decide.outputs.run == 'true'
-        run: uv sync
+        run: |
+          uv export --locked --no-hashes --no-emit-project -q \
+            | grep -vE '^(nvidia-(cu|nccl|nvjitlink|nvtx|nvshmem)|triton|cuda-)' \
+            > "$RUNNER_TEMP/requirements.txt"
+          uv venv
+          uv pip install --torch-backend cpu -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --no-deps -e .
+
+      # --no-sync everywhere: a plain `uv run` re-syncs the env to the lockfile,
+      # bringing back CUDA torch and the released experimaestro/datamaestro.
+      - name: Dry run (locked dependencies)
+        if: steps.decide.outputs.run == 'true'
+        run: uv run --no-sync pytest -v -k dry_run
+
+      - name: Smoke test (locked dependencies)
+        if: steps.decide.outputs.run == 'true'
+        run: uv run --no-sync pytest -v -k smoke
 
       # Test against the bleeding edge of both projects. XPM_NO_WEBUI skips the
-      # (slow, irrelevant) React frontend build — the smoke test never opens the
-      # web UI. datamaestro has no frontend to build.
+      # (slow, irrelevant) React frontend build — the tests never open the web
+      # UI. datamaestro has no frontend to build.
       - name: Install experimaestro + datamaestro from master
         if: steps.decide.outputs.run == 'true'
         env:
@@ -77,12 +103,13 @@ jobs:
             "experimaestro[carbon] @ git+https://github.com/experimaestro/experimaestro-python@${{ steps.rev.outputs.xpm }}" \
             "datamaestro @ git+https://github.com/experimaestro/datamaestro@${{ steps.rev.outputs.dm }}"
 
-      # --no-sync is essential: a plain `uv run` re-syncs the env to the
-      # lockfile and would uninstall the git-master experimaestro/datamaestro
-      # installed above, silently testing the released version instead.
-      - name: Run the demo smoke test (fast, fake data)
+      - name: Dry run (experimaestro + datamaestro master)
         if: steps.decide.outputs.run == 'true'
-        run: uv run --no-sync pytest -q
+        run: uv run --no-sync pytest -v -k dry_run
+
+      - name: Smoke test (experimaestro + datamaestro master)
+        if: steps.decide.outputs.run == 'true'
+        run: uv run --no-sync pytest -v -k smoke
 
       # Record this pair as tested, but only if the run passed, so a broken
       # upstream is retried until fixed instead of being marked done.
@@ -95,41 +122,3 @@ jobs:
         with:
           path: .tested
           key: tested-${{ steps.rev.outputs.xpm }}-${{ steps.rev.outputs.dm }}
-
-  # Checks that the demo experiments, as shipped (real params.yaml, locked
-  # dependencies), can be planned: a dry run builds every task and prints what
-  # would be launched, without downloading MNIST or running anything.
-  # `uv sync --locked` also fails if uv.lock is stale or points to a local path.
-  dry-run:
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        params:
-          - mnist_xp/params.yaml
-          - mnist_xp_advanced/params.yaml
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.3.1
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --locked
-
-      # The test launcher config resolves any launcher spec to a local
-      # DirectLauncher, so no user-level launchers.py is needed.
-      - name: Dry-run ${{ matrix.params }}
-        run: |
-          uv run --no-sync experimaestro run-experiment \
-            --workdir "$RUNNER_TEMP/xp" \
-            --xpm-config-dir tests/xpm-config \
-            --run-mode dry_run \
-            ${{ matrix.params }}

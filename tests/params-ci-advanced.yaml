@@ -1,0 +1,25 @@
+id: MNIST_train_advanced_ci
+title: "MNIST training, advanced (CI smoke test)"
+description: "Fast CI smoke test: two tiny models (lr grid), 1 epoch, fake data"
+
+# what experiment file to run (mnist_xp_advanced lives one level up, in the demo root)
+module: mnist_xp_advanced.experiment
+pythonpath: [..]
+
+# Replace the MNIST download with a tiny fake dataset (see fake_mnist.py).
+pre_experiment: fake_mnist.py
+
+# Resolved to a local DirectLauncher by tests/xpm-config/launchers.py
+launcher: "duration=10m & cpu(cores=1)"
+
+# Smallest grid that still exercises GridSearch (range_mult): two tiny models
+n_layers: 1
+hidden_dim: 2
+kernel_size: 1
+lr:
+  range_mult: [1e-3, 2, 10]
+
+# Training parameters (kept minimal for speed)
+epochs: 1
+batch_size: 64
+n_val: 100
