@@ -55,6 +55,7 @@ jobs:
         uses: astral-sh/setup-uv@v10.3.1
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Set up Python
         if: steps.decide.outputs.run == 'true'
@@ -115,6 +116,7 @@ jobs:
         uses: astral-sh/setup-uv@v10.3.1
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Set up Python
         run: uv python install 3.12
