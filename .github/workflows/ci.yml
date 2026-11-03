@@ -8,45 +8,60 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  # Weekly test against the latest experimaestro + datamaestro. The job no-ops
-  # when neither upstream tip has moved since the last successful run (see the
-  # cache step below).
+  # Weekly test against the latest experimaestro + datamaestro (stable releases
+  # and master). The job no-ops when none of them has changed since the last
+  # successful run (see the cache step below).
   schedule:
     - cron: "0 4 * * 1" # Mondays 04:00 UTC
 
 # One job, one install: the demo is tested first with the locked dependencies
-# (as users get it), then with experimaestro + datamaestro master installed on
-# top. Each time, both experiments are dry-run on the shipped params.yaml, then
+# (as users get it), then with the latest experimaestro + datamaestro releases
+# installed on top, then with their master branches. Each time, both experiments are dry-run on the shipped params.yaml, then
 # run for real on a tiny config with fake data (see tests/).
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve experimaestro + datamaestro master HEADs
+      - name: Resolve experimaestro + datamaestro latest releases and master HEADs
         id: rev
         run: |
+          set -o pipefail
+          pypi() {
+            curl -sfL "https://pypi.org/pypi/$1/json" | python3 -c 'import json, sys; print(json.load(sys.stdin)["info"]["version"])'
+          }
+          xpm_stable=$(pypi experimaestro)
+          dm_stable=$(pypi datamaestro)
           xpm=$(git ls-remote https://github.com/experimaestro/experimaestro-python.git refs/heads/master | cut -f1)
           dm=$(git ls-remote https://github.com/experimaestro/datamaestro.git refs/heads/master | cut -f1)
-          echo "xpm=$xpm" >> "$GITHUB_OUTPUT"
-          echo "dm=$dm" >> "$GITHUB_OUTPUT"
-          echo "experimaestro=$xpm datamaestro=$dm"
+          for v in "$xpm_stable" "$dm_stable" "$xpm" "$dm"; do
+            [ -n "$v" ] || { echo "Could not resolve a version"; exit 1; }
+          done
+          {
+            echo "xpm_stable=$xpm_stable"
+            echo "dm_stable=$dm_stable"
+            echo "xpm=$xpm"
+            echo "dm=$dm"
+            echo "key=tested-$xpm_stable-$dm_stable-$xpm-$dm"
+          } >> "$GITHUB_OUTPUT"
+          echo "stable: experimaestro=$xpm_stable datamaestro=$dm_stable"
+          echo "master: experimaestro=$xpm datamaestro=$dm"
 
-      # Cache key is the pair of upstream tips: a hit means this exact
-      # combination already passed. Split restore/save so we only record a
-      # combination as tested when the run actually succeeds.
-      - name: Has this (experimaestro, datamaestro) pair been tested?
+      # Cache key is the latest releases and master tips of both projects: a hit
+      # means this exact combination already passed. Split restore/save so we
+      # only record a combination as tested when the run actually succeeds.
+      - name: Has this combination been tested?
         id: cache
         uses: actions/cache/restore@v6
         with:
           path: .tested
-          key: tested-${{ steps.rev.outputs.xpm }}-${{ steps.rev.outputs.dm }}
+          key: ${{ steps.rev.outputs.key }}
 
       - name: Decide whether to run
         id: decide
         run: |
           if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ] && [ "${{ github.event_name }}" = "schedule" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Both upstream tips unchanged since last successful run; skipping."
+            echo "Latest releases and master tips unchanged since last successful run; skipping."
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
@@ -91,6 +106,23 @@ jobs:
         if: steps.decide.outputs.run == 'true'
         run: uv run --no-sync pytest -v -k smoke
 
+      # Test against the latest releases of both projects (the exact versions
+      # resolved above, which are part of the cache key).
+      - name: Install the latest experimaestro + datamaestro releases
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          uv pip install --upgrade \
+            "experimaestro[carbon]==${{ steps.rev.outputs.xpm_stable }}" \
+            "datamaestro==${{ steps.rev.outputs.dm_stable }}"
+
+      - name: Dry run (latest releases)
+        if: steps.decide.outputs.run == 'true'
+        run: uv run --no-sync pytest -v -k dry_run
+
+      - name: Smoke test (latest releases)
+        if: steps.decide.outputs.run == 'true'
+        run: uv run --no-sync pytest -v -k smoke
+
       # Test against the bleeding edge of both projects. XPM_NO_WEBUI skips the
       # (slow, irrelevant) React frontend build — the tests never open the web
       # UI. datamaestro has no frontend to build.
@@ -111,14 +143,14 @@ jobs:
         if: steps.decide.outputs.run == 'true'
         run: uv run --no-sync pytest -v -k smoke
 
-      # Record this pair as tested, but only if the run passed, so a broken
-      # upstream is retried until fixed instead of being marked done.
-      - name: Mark pair as tested
+      # Record this combination as tested, but only if the run passed, so a
+      # broken upstream is retried until fixed instead of being marked done.
+      - name: Mark combination as tested
         if: success() && steps.decide.outputs.run == 'true'
-        run: echo "${{ steps.rev.outputs.xpm }} ${{ steps.rev.outputs.dm }}" > .tested
+        run: echo "${{ steps.rev.outputs.key }}" > .tested
       - name: Save cache
         if: success() && steps.decide.outputs.run == 'true' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: .tested
-          key: tested-${{ steps.rev.outputs.xpm }}-${{ steps.rev.outputs.dm }}
+          key: ${{ steps.rev.outputs.key }}
