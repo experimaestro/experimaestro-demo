@@ -760,7 +760,8 @@ dependencies = [
     { name = "cached-property" },
     { name = "click" },
     { name = "docstring-parser" },
-    { name = "experimaestro" },
+    { name = "experimaestro", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "experimaestro", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "filelock" },
     { name = "idna" },
     { name = "marshmallow" },
@@ -811,8 +812,69 @@ wheels = [
 
 [[package]]
 name = "experimaestro"
-version = "2.6.1"
+version = "2.7.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.11'",
+]
+dependencies = [
+    { name = "arpeggio" },
+    { name = "attrs" },
+    { name = "click" },
+    { name = "decorator" },
+    { name = "docstring-parser" },
+    { name = "fastapi" },
+    { name = "filelock" },
+    { name = "httpx" },
+    { name = "humanfriendly" },
+    { name = "jinja2" },
+    { name = "marshmallow" },
+    { name = "psutil" },
+    { name = "pydantic" },
+    { name = "pyparsing" },
+    { name = "pyperclip" },
+    { name = "pytools" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "rpyc" },
+    { name = "sortedcontainers" },
+    { name = "termcolor" },
+    { name = "textual" },
+    { name = "textual-fspicker" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "watchdog" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/da/57/c926bc2b88d195834e3a15d1c04d0e273bd4e50bdf8b78b752c7c8b66459/experimaestro-2.7.0.tar.gz", hash = "sha256:4ca813a7bc154abdb9088bd09604c61b2a977712fcdbf74ecfc5fd4b3b5796da", size = 2383712, upload-time = "2026-10-07T16:07:52.34Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/c0/25bb38172a7361b7b20b97df5b9e4706005925f7fcb6540dfca516284e4d/experimaestro-2.7.0-py3-none-any.whl", hash = "sha256:f2f6e3e7afdd0fa0ff67349671d4d6df7a2a41c4357979f06f595209063ba832", size = 1757600, upload-time = "2026-10-07T16:07:50.488Z" },
+]
+
+[package.optional-dependencies]
+carbon = [
+    { name = "codecarbon", marker = "sys_platform != 'darwin'" },
+    { name = "zeus", extra = ["apple"], marker = "sys_platform == 'darwin'" },
+]
+
+[[package]]
+name = "experimaestro"
+version = "2.9.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.15' and sys_platform == 'win32'",
+    "python_full_version >= '3.15' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.15' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.14.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
     { name = "arpeggio" },
     { name = "attrs" },
@@ -842,9 +904,9 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/65/c4/d62b1561b8ca2b4fc00a9cab6f5d4c32e677efabff0c88e85abf672248a3/experimaestro-2.6.1.tar.gz", hash = "sha256:0ed4b167da77f2092919cfd2ca4a4c6b2c228db2f7bb108e2e0e19f210683e0c", size = 2343759, upload-time = "2026-07-09T17:38:02.734Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/ba/b8e218a29c3a1b39e7ee194f2297cf0fd3cbde3274a40227e02bd61e217d/experimaestro-2.9.1.tar.gz", hash = "sha256:e6c56cfd910a3737ba5d942a0a82ef4d27fdc0de7083a9d264d48862d9ddafe2", size = 2802795, upload-time = "2026-11-05T10:23:38.906Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/f0/204519ee463c5ceda0700cfe2aac66ca00e70878cde2b0375593f4ea7d7b/experimaestro-2.6.1-py3-none-any.whl", hash = "sha256:22b51caa8f37aab3975806b70e7a83d25648620b5ea7900fec897a555c9248e5", size = 1713641, upload-time = "2026-07-09T17:38:00.611Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/5f/e7fadc6836935e4fae4b11d2fd6b55d63c66e77a50bb62190c42d5799a0e/experimaestro-2.9.1-py3-none-any.whl", hash = "sha256:14987562461a93c5b17bda3610131e8ae51c0b36da94c1d1421cfdb64b769296", size = 2160206, upload-time = "2026-11-05T10:23:36.707Z" },
 ]
 
 [package.optional-dependencies]
@@ -859,7 +921,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "datamaestro" },
-    { name = "experimaestro", extra = ["carbon"] },
+    { name = "experimaestro", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, extra = ["carbon"], marker = "python_full_version < '3.11'" },
+    { name = "experimaestro", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, extra = ["carbon"], marker = "python_full_version >= '3.11'" },
     { name = "nvidia-ml-py" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -4318,7 +4381,8 @@ name = "xpm-mlboard"
 version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "experimaestro" },
+    { name = "experimaestro", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "experimaestro", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c4/e1/9b7c0f43d9968cb0d2f9021414b3bde764e00124d348e1ca651a78dc4146/xpm_mlboard-0.2.0.tar.gz", hash = "sha256:53dc5fec447f4408584ed50268e0f5898c8dc45fcdd2f26216c28bd4c3b8c1b2", size = 122610, upload-time = "2026-06-21T06:30:32.451Z" }
 wheels = [
