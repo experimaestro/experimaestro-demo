@@ -3,14 +3,14 @@
 import logging
 from datamaestro import prepare_dataset
 from experimaestro.experiments import ExperimentHelper, configuration
-from experimaestro import RunMode
 from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
 from experimaestro.experiments.grid import GridSearch, generate_grid
 
 # Monitoring is provided by the xpm-mlboard plugin (see mnist_xp/experiment.py
-# for details); it also writes per-run tag sidecars for Weights & Biases export.
-from xpm_mlboard import TensorboardService
+# for details): TensorBoard runs (with per-run tag sidecars for Weights & Biases
+# export) and a table viewer for the evaluation results.
+from xpm_mlboard import TableViewerService, TensorboardService
 from mnist_xp.learn import CNN, Learn, Evaluate
 from mnist_xp.data import MNISTDataset
 from .actions import ExportBestModel, EvaluatedModel
@@ -43,7 +43,12 @@ class Configuration(ConfigurationBase):
 
 
 def run_one_config(
-    config: Configuration, tags: dict, gpulauncher, ds_mnist, tb
+    config: Configuration,
+    tags: dict,
+    gpulauncher,
+    ds_mnist,
+    tb: TensorboardService,
+    tables: TableViewerService,
 ) -> EvaluatedModel:
     """Run the training and evaluation for a single configuration permutation.
 
@@ -52,7 +57,8 @@ def run_one_config(
         tags: A dictionary of tags to be applied to the model.
         gpulauncher: The launcher to submit tasks.
         ds_mnist: The downloaded dataset containing train/test data.
-        tb: The TensorboardService instance (or None if not running).
+        tb: The TensorboardService instance (inactive if not running normally).
+        tables: The TableViewerService instance (inactive if not running normally).
 
     Returns:
         EvaluatedModel: A configuration object wrapping the CNN and its output paths,
@@ -87,12 +93,14 @@ def run_one_config(
     loader = learn_task.submit(launcher=gpulauncher)
 
     # Add tensorboard logs to the service so they are visible in the UI
-    if tb:
-        tb.add(learn_task, learn_task.run_path)
+    tb.add(learn_task, learn_task.run_path)
 
     # Evaluate the model on the test set, depending on the training task completing first
     evaluate = Evaluate.C(model=model, data=ds_mnist.test)
     evaluate.submit(init_tasks=[loader])
+    # Show the evaluation results in the table viewer, as one "eval" table
+    # with a column per tag (the file does not need to exist yet)
+    tables.add(evaluate, evaluate.results_path, name="eval")
 
     # Return the EvaluatedModel containing all paths required for the export action
     return EvaluatedModel.C(
@@ -114,16 +122,12 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     # This downloads the dataset if needed
     ds_mnist = prepare_dataset(MNISTDataset)
 
-    # Add the monitoring service if in NORMAL run mode. add_service() cleans and
-    # (re)creates the runs/ directory; each tb.add() below symlinks a task's run
-    # into it and writes its tag sidecar.
-    if helper.xp.workspace.run_mode == RunMode.NORMAL:
-        # DRY RUN is used for testing the experiment code,
-        # without actually launching tasks or writing results. Skip services in that case.
-        tb = TensorboardService(helper.xp.resultspath / "runs")
-        helper.xp.add_service(tb)
-    else:
-        tb = None  # no tensorboard in dry run
+    # Add the monitoring services (paths relative to the experiment results
+    # path). They are only active in NORMAL run mode, where add_service()
+    # cleans and (re)creates their directories; in DRY RUN mode their add()
+    # methods do nothing.
+    tb = helper.xp.add_service(TensorboardService("runs"))
+    tables = helper.xp.add_service(TableViewerService("tables"))
 
     # --- Grid Search Implementation ---
     # `generate_grid` scans the configuration object for fields annotated with `GridSearch[T]`
@@ -140,7 +144,7 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     for config, tags in zip(configurations, all_tags):
         # Run training and evaluation for this permutation, and collect candidate details
         logging.info(f"Launching training for configuration with tags: {tags}")
-        candidate = run_one_config(config, tags, gpulauncher, ds_mnist, tb)
+        candidate = run_one_config(config, tags, gpulauncher, ds_mnist, tb, tables)
         candidates.append(candidate)
 
     # Register the post-experiment action to pick the best CNN by validation accuracy

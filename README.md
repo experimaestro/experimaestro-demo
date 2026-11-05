@@ -390,6 +390,14 @@ You can run a TUI-based monitor in the terminal with
 uv run experimaestro experiments monitor --console
 ```
 
+The experiment also registers two services (from the
+[xpm-mlboard](https://github.com/experimaestro/xpm-mlboard) plugin) that you
+can start from the monitor:
+- **TensorBoard** (`tensorboard`) shows the learning curves of every `Learn` task;
+- **Table viewer** (`tables`) shows the `Evaluate` results as a single table,
+  with one column per tag (`n_layers`, `hidden_dim`, ...), that you can sort,
+  filter, pivot and chart in the browser.
+
 
 ---
 

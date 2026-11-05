@@ -15,7 +15,7 @@ dependencies = [
     "torchvision>=0.21.0",
     # Monitoring services (TensorBoard aggregation + per-run tag sidecars for
     # Weights & Biases export).
-    "xpm-mlboard[tensorboard]>=0.2.0",
+    "xpm-mlboard[tensorboard,tables]>=0.4.1",
 ]
 
 [dependency-groups]

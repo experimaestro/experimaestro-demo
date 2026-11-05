@@ -7,11 +7,13 @@ from experimaestro import RunMode, tag
 from experimaestro.experiments.configuration import ConfigurationBase
 from experimaestro.launcherfinder import find_launcher
 
-# Monitoring is provided by the xpm-mlboard plugin. Its TensorboardService
-# aggregates each task's run directory and, in addition, records the task's
-# tags in a ``<tags>.tags.json`` sidecar so the runs can later be exported to
-# Weights & Biases (see ``xpm_mlboard.exporters.wandb``).
-from xpm_mlboard import TensorboardService
+# Monitoring is provided by the xpm-mlboard plugin:
+# - TensorboardService aggregates each task's run directory and, in addition,
+#   records the task's tags in a ``<tags>.tags.json`` sidecar so the runs can
+#   later be exported to Weights & Biases (see ``xpm_mlboard.exporters.wandb``);
+# - TableViewerService shows the tables produced by the tasks (here, the
+#   evaluation results) in a Perspective viewer, with one column per tag.
+from xpm_mlboard import TableViewerService, TensorboardService
 from .learn import CNN, Learn, Evaluate
 from .data import MNISTDataset
 
@@ -52,16 +54,14 @@ def run(helper: ExperimentHelper, cfg: Configuration):
     # This downloads the dataset if needed
     ds_mnist = prepare_dataset(MNISTDataset)
 
-    # Add the monitoring service. add_service() calls set_experiment(), which
-    # cleans and (re)creates the runs/ directory; each tb.add() below then
-    # symlinks a task's run into it and writes its tag sidecar.
-    if helper.xp.workspace.run_mode != RunMode.DRY_RUN:
-        # DRY RUN is used for testing the experiment code,
-        # without actually launching tasks or writing results. Skip services in that case.
-        tb = TensorboardService(helper.xp.resultspath / "runs")
-        helper.xp.add_service(tb)
-    else:
-        tb = None  # no tensorboard in dry run
+    # Add the monitoring services. Their (relative) paths are resolved against
+    # the experiment results path, i.e. <results>/runs and <results>/tables.
+    # In NORMAL run mode, add_service() cleans and (re)creates these
+    # directories; in other modes (e.g. DRY RUN, used for testing the
+    # experiment code without launching tasks), the services stay inactive and
+    # their add() methods do nothing.
+    tb = helper.xp.add_service(TensorboardService("runs"))
+    tables = helper.xp.add_service(TableViewerService("tables"))
 
     # GridSearch: Launch a task for each combination of parameters
     for n_layer in cfg.n_layers:
@@ -89,12 +89,15 @@ def run(helper: ExperimentHelper, cfg: Configuration):
                 # Submit the task
                 loader = learn_task.submit(launcher=gpulauncher)
                 # Add tensorboard logs to the service, so that they are available in the UI as soon as the task starts writing them
-                if tb:
-                    tb.add(learn_task, learn_task.run_path)
+                tb.add(learn_task, learn_task.run_path)
 
                 # Evaluate the model on the test set
                 evaluate = Evaluate.C(model=model, data=ds_mnist.test)
                 evaluate.submit(init_tasks=[loader])
+                # Show the evaluation results in the table viewer: all the
+                # files registered as "eval" are concatenated into one table
+                # (the file does not need to exist yet)
+                tables.add(evaluate, evaluate.results_path, name="eval")
 
     # Wait that everything finishes.
     helper.xp.wait()
